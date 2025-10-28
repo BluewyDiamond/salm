@@ -60,77 +60,36 @@ def 'main install' [
 
       let installed_packages = pacman -Qq | lines
 
-      let std_packages = $config.packages | where {|package|
-         $package.from == "std" and $package.ignore == false
+      let missing_packages = $config.packages | where {|package|
+         ($package.name not-in $installed_packages) and $package.ignore == false
       }
 
-      let aur_packages = $config.packages | where {|package|
-         $package.from == "aur" and $package.ignore == false
+      if ($missing_packages | is-empty) {
+         log info $"skipping because there is no packages to install"
+         return
       }
 
-      let local_packages = $config.packages | where {|package|
-         $package.from == "lcl" and $package.ignore == false
+      try {
+         pacman -S ($missing_packages | where from == 'std')
+      } catch {|error|
+         $error.rendered | print
       }
 
-      (
-         install-packages
-         $std_packages
-         $installed_packages
-         "std"
+      try {
+         aura -A ($missing_packages | where from == 'aur')
+      } catch {|error|
+         $error.rendered | print
+      }
 
-         {|missing_std_packages|
-            let missing_std_package_names = $missing_std_packages
-            | each {|missing_std_package|
-               $missing_std_package.name
-            }
-
-            try {
-               pacman -S ...$missing_std_package_names
-            } catch {|$error|
-               $error.rendered | print
-            }
-         }
-      )
-
-      (
-         install-packages
-         $aur_packages
-         $installed_packages
-         "aur"
-
-         {|missing_aur_packages|
-            let missing_aur_package_names = $missing_aur_packages
-            | each {|missing_aur_package|
-               $missing_aur_package.name
-            }
-
-            try {
-               paru -S --aur ...$missing_aur_package_names
-            } catch {|$error|
-               $error.rendered | print
-            }
-         }
-      )
-
-      (
-         install-packages
-         $local_packages
-         $installed_packages
-         "local"
-
-         {|missing_local_packages|
-            let missing_local_package_paths = $missing_local_packages
-            | each {|missing_local_packages|
-               $missing_local_packages.dir_abs_path
-            }
-
-            try {
-               paru -Bi ...$missing_local_package_paths
-            } catch {|$error|
-               $error.rendered | print
-            }
-         }
-      )
+      try {
+         makepkg -si -D (
+            $missing_packages
+            | where from == 'aur'
+            | each {|missing_package| $missing_package.path }
+         )
+      } catch {|error|
+         $error.rendered | print
+      }
    }
 
    do {
@@ -161,7 +120,7 @@ def 'main install' [
 def 'main cleanup' [
    --config-dir (-c): path = . # full path to config directory
    ...profiles: string # list of profile names
-] {
+]: nothing -> nothing {
    if ($profiles | is-empty) {
       error make {msg: "Missing parameter..."}
    }
@@ -194,7 +153,7 @@ def 'main cleanup' [
 
          if $enabled_units == null {
             log error $"skipping because of lack of permissions for unit_path=($unit.path) owned-by=($unit.user)"
-            return null
+            return
          }
 
          try {
@@ -208,7 +167,9 @@ def 'main cleanup' [
    null
 }
 
-def install-file [file: record] {
+def install-file [
+   file: record
+]: nothing -> nothing {
    log info (
       $"checking file to install with owner=($file.owner)" +
       $" with target=($file.target_abs_path)"
@@ -229,7 +190,9 @@ def install-file [file: record] {
    }
 }
 
-def copy-file [$file] {
+def copy-file [
+   file
+]: nothing -> nothing {
    let source_abs_path_type = $file.source_abs_path | path type
    let target_abs_path_type = $file.target_abs_path | path type
 
@@ -326,7 +289,9 @@ def copy-file [$file] {
    }
 }
 
-def link-file [$file]: nothing -> nothing {
+def link-file [
+   file
+]: nothing -> nothing {
    let source_abs_path_type = $file.source_abs_path | path type
    let target_abs_path_type = $file.target_abs_path | path type
 
@@ -415,7 +380,9 @@ def install-packages [
    do $on_install $missing_packages
 }
 
-def cleanup-packages [packages] {
+def cleanup-packages [
+   packages
+]: nothing -> nothing {
    log info 'checking packages to cleanup'
    let installed_package_names = pacman -Qq | lines
    let package_names = $packages | par-each {|package| $package.name }
@@ -448,7 +415,10 @@ def is-package-a-dependency []: string -> bool {
    $pactree_output_complete | get stdout | lines | length | $in > 1
 }
 
-def do-unit [unit enabled_unit_names] {
+def do-unit [
+   unit
+   enabled_unit_names
+]: nothing -> nothing {
    log info (
       $"checking services with user=($unit.user)"
       + $" and dir_abs_path=($unit.dir_abs_path)"
@@ -483,7 +453,10 @@ def do-unit [unit enabled_unit_names] {
    # TODO: Mask units
 }
 
-def cleanup-unit [unit enabled_unit_names] {
+def cleanup-unit [
+   unit
+   enabled_unit_names
+]: nothing -> nothing {
    log info $"checking units with user=($unit.user) and dir_abs_path=($unit.dir_abs_path)"
 
    let unit_names_to_ignore = $unit.enable
