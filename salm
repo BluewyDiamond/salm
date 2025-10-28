@@ -102,7 +102,7 @@ def 'main install' [
       }
 
       let missing_local_package_paths = $missing_packages
-      | where from == 'aur'
+      | where from == 'lcl'
       | each {|missing_package| $missing_package.path }
 
       do {
