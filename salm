@@ -70,19 +70,19 @@ def 'main install' [
       }
 
       try {
-         pacman -S ($missing_packages | where from == 'std')
+         pacman -S ...($missing_packages | where from == 'std')
       } catch {|error|
          $error.rendered | print
       }
 
       try {
-         aura -A ($missing_packages | where from == 'aur')
+         aura -A ...($missing_packages | where from == 'aur')
       } catch {|error|
          $error.rendered | print
       }
 
       try {
-         makepkg -si -D (
+         makepkg -si -D ...(
             $missing_packages
             | where from == 'aur'
             | each {|missing_package| $missing_package.path }
