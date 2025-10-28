@@ -95,7 +95,7 @@ def 'main install' [
          }
 
          try {
-            aura -A ...$missing_aur_package_names
+            paru -S --aur ...$missing_aur_package_names
          } catch {|error|
             $error.rendered | print
          }
@@ -111,7 +111,7 @@ def 'main install' [
          }
 
          try {
-            makepkg -si -D ...$missing_local_package_paths
+            paru -Bi ...$missing_local_package_paths
          } catch {|error|
             $error.rendered | print
          }
