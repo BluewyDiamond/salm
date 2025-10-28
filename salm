@@ -69,26 +69,52 @@ def 'main install' [
          return
       }
 
-      try {
-         pacman -S ...($missing_packages | where from == 'std')
-      } catch {|error|
-         $error.rendered | print
+      let missing_std_package_names = $missing_packages
+      | where from == 'std'
+      | each {|missing_package| $missing_package.name }
+
+      do {
+         if ($missing_std_package_names | is-empty) {
+            return
+         }
+
+         try {
+            pacman -S ...$missing_std_package_names
+         } catch {|error|
+            $error.rendered | print
+         }
       }
 
-      try {
-         aura -A ...($missing_packages | where from == 'aur')
-      } catch {|error|
-         $error.rendered | print
+      let missing_aur_package_names = $missing_packages
+      | where from == 'aur'
+      | each {|missing_aur_package| $missing_aur_package.name }
+
+      do {
+         if ($missing_aur_package_names | is-empty) {
+            return
+         }
+
+         try {
+            aura -A $missing_aur_package_names
+         } catch {|error|
+            $error.rendered | print
+         }
       }
 
-      try {
-         makepkg -si -D ...(
-            $missing_packages
-            | where from == 'aur'
-            | each {|missing_package| $missing_package.path }
-         )
-      } catch {|error|
-         $error.rendered | print
+      let missing_local_package_paths = $missing_packages
+      | where from == 'aur'
+      | each {|missing_package| $missing_package.path }
+
+      do {
+         if ($missing_local_package_paths | is-empty) {
+            return
+         }
+
+         try {
+            makepkg -si -D ...$missing_local_package_paths
+         } catch {|error|
+            $error.rendered | print
+         }
       }
    }
 
