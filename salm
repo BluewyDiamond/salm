@@ -95,7 +95,7 @@ def 'main install' [
          }
 
          try {
-            aura -A $missing_aur_package_names
+            aura -A ...$missing_aur_package_names
          } catch {|error|
             $error.rendered | print
          }
