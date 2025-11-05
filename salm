@@ -69,6 +69,8 @@ def 'main install' [
          return
       }
 
+      log info 'checking packages to install'
+
       let missing_std_package_names = $missing_packages
       | where from == 'std'
       | each {|missing_package| $missing_package.name }
