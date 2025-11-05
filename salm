@@ -39,7 +39,7 @@ def 'main install' [
 
    do {
       if $config.files? == null or ($config.files | is-empty) {
-         log info "no files to manage"
+         log info "skipping files management - nothing to do"
          return
       }
 
@@ -54,7 +54,7 @@ def 'main install' [
 
    do {
       if $config.packages? == null or ($config.packages | is-empty) {
-         log info "no packages to manage"
+         log info "skipping packages management - nothing to do"
          return
       }
 
@@ -65,7 +65,7 @@ def 'main install' [
       }
 
       if ($missing_packages | is-empty) {
-         log info $"skipping because there is no packages to install"
+         log info "skipping packages management - nothing to do"
          return
       }
 
@@ -120,7 +120,7 @@ def 'main install' [
 
    do {
       if $config.units == null or ($config.units | is-empty) {
-         log info "no units to manage"
+         log info "skipping units management - nothing to do"
          return
       }
 
@@ -128,7 +128,7 @@ def 'main install' [
          let enabled_units = get-enabled-units $unit.dir_abs_path
 
          if $enabled_units == null {
-            log error $"skipping because of lack of permissions for unit_path=($unit.path) owned-by=($unit.user)"
+            log error $"skipping unit - insufficient permissions - unit_path=($unit.path) owned-by=($unit.user)"
             return null
          }
 
@@ -157,7 +157,7 @@ def 'main cleanup' [
 
    do {
       if $config.packages? == null or ($config.packages | is-empty) {
-         log info "no packages to manage"
+         log info "skipping packages management - nothing to do"
          return
       }
 
@@ -170,7 +170,7 @@ def 'main cleanup' [
 
    do {
       if $config.units == null or ($config.units | is-empty) {
-         log info "no units to manage"
+         log info "skipping units management - nothing to do"
          return
       }
 
@@ -178,7 +178,7 @@ def 'main cleanup' [
          let enabled_units = get-enabled-units $unit.dir_abs_path
 
          if $enabled_units == null {
-            log error $"skipping because of lack of permissions for unit_path=($unit.path) owned-by=($unit.user)"
+            log error $"skipping unit - insufficient permissions - unit_path=($unit.path) owned-by=($unit.user)"
             return
          }
 
@@ -197,8 +197,8 @@ def install-file [
    file: record
 ]: nothing -> nothing {
    log info (
-      $"checking file to install with owner=($file.owner)" +
-      $" with target=($file.target_abs_path)"
+      "checking file to install -" +
+      $" owner=($file.owner) target=($file.target_abs_path)"
    )
 
    match $file.action {
@@ -211,7 +211,7 @@ def install-file [
       }
 
       _ => {
-         log error $"skipped because not implemeted for action=($file.action)"
+         log error $"skipped file install - no method - action=($file.action)"
       }
    }
 }
@@ -225,7 +225,7 @@ def copy-file [
    match [$source_abs_path_type $target_abs_path_type] {
       [null _] => {
          log error (
-            $"skipping because of non-existance for"
+            $"skipped copy - source does not exist -"
             + $" source=($file.source_abs_path)"
          )
       }
@@ -237,7 +237,7 @@ def copy-file [
             mkdir $target_dir_abs_path
          }
 
-         log info $"installing to target=($file.target_abs_path)"
+         log info $"copying file - target=($file.target_abs_path)"
          cp -r $file.source_abs_path $file.target_abs_path
          chmod $file.chmod $file.target_abs_path
          chown -R $"($file.owner):($file.group)" $file.target_abs_path
@@ -254,13 +254,13 @@ def copy-file [
             | $in == 0
          ) {
             log info (
-               $"skipping because a match was found for target=($file.target_abs_path)"
+               $"skipping dir copy - target matches - target=($file.target_abs_path)"
             )
 
             return
          }
 
-         log info $"installing to target=($file.target_abs_path)"
+         log info $"copying dir - target=($file.target_abs_path)"
          rm -r $file.target_abs_path
          cp -r $file.source_abs_path $file.target_abs_path
          chmod $file.chmod $file.target_abs_path
@@ -273,13 +273,13 @@ def copy-file [
 
          if ($target_file == $source_file) {
             log info (
-               $"skipping because a match was found for target=($file.target_abs_path)"
+               $"skipping file copy - target matches - target=($file.target_abs_path)"
             )
 
             return
          }
 
-         log info $"installing to target=($file.target_abs_path)"
+         log info $"copying file - target=($file.target_abs_path)"
          rm $file.target_abs_path
          cp $file.source_abs_path $file.target_abs_path
          chmod $file.chmod $file.target_abs_path
@@ -292,13 +292,13 @@ def copy-file [
             ($file.target_abs_path | path expand)
          ) {
             log info (
-               $"skipping because a match was found for target=($file.target_abs_path)"
+               $"skipping symlink copy - target matches - target=($file.target_abs_path)"
             )
 
             return
          }
 
-         log info $"installing to target=($file.target_abs_path)"
+         log info $"copying symlink - target=($file.target_abs_path)"
          unlink $file.target_abs_path
          cp $file.source_abs_path $file.target_abs_path
          chmod $file.chmod $file.target_abs_path
@@ -307,7 +307,7 @@ def copy-file [
 
       [_ _] => {
          log error (
-            $"skipped because not implemented for action=($file.action)" +
+            $"skipped copying - no method - action=($file.action)" +
             $" source=($file.source_abs_path)" +
             $" target=($file.target_abs_path)"
          )
@@ -326,7 +326,7 @@ def link-file [
          (
             log
             error
-            $"skipping because of non-existance for source=($file.source_abs_path)"
+            $"skipped link - source does not exist - source=($file.source_abs_path)"
          )
       }
 
@@ -338,20 +338,20 @@ def link-file [
             mkdir $target_parent_dir_abs_path
          }
 
-         log info $"installing to target=($file.target_abs_path)"
+         log info $"linking - target=($file.target_abs_path)"
          ln -s $file.source_abs_path $file.target_abs_path
          chown -R $"($file.owner):($file.group)" $file.target_abs_path
       }
 
       [_ dir] => {
-         log info $"installing to target=($file.target_abs_path)"
+         log info $"linking - target=($file.target_abs_path)"
          rm -r $file.target_abs_path
          ln -s $file.source_abs_path $file.target_abs_path
          chown -R $"($file.owner):($file.group)" $file.target_abs_path
       }
 
       [_ file] => {
-         log info $"installing to target=($file.target_abs_path)"
+         log info $"linking - target=($file.target_abs_path)"
          rm $file.target_abs_path
          ln -s $file.source_abs_path $file.target_abs_path
          chown -R $"($file.owner):($file.group)" $file.target_abs_path
@@ -363,13 +363,13 @@ def link-file [
             $file.source_abs_path
          ) {
             log info (
-               $"skipping because a match was found for target=($file.target_abs_path)"
+               $"skipping link - target matches - target=($file.target_abs_path)"
             )
 
             return
          }
 
-         log info $"installing to target=($file.target_abs_path)"
+         log info $"linking - target=($file.target_abs_path)"
          unlink $file.target_abs_path
          ln -s $file.source_abs_path $file.target_abs_path
          chown -R $"($file.owner):($file.group)" $file.target_abs_path
@@ -377,33 +377,12 @@ def link-file [
 
       [_ _] => {
          log error (
-            $"skipped because not implemented for action=($file.action)" +
+            $"skipped link - no method - action=($file.action)" +
             $" source=($file.source_abs_path)" +
             $" target=($file.target_abs_path)"
          )
       }
    }
-}
-
-def install-packages [
-   packages
-   installed_packages: list<string>
-   label: string
-   on_install: closure
-]: nothing -> nothing {
-   log info $"checking ($label) packages to install"
-
-   let missing_packages = $packages | where {|package|
-      $package.name not-in $installed_packages
-   }
-
-   if ($missing_packages | is-empty) {
-      log info $"skipping because there is no packages to install for ($label)"
-      return
-   }
-
-   log info $"installing packages for ($label)"
-   do $on_install $missing_packages
 }
 
 def cleanup-packages [
@@ -426,7 +405,7 @@ def cleanup-packages [
       log info 'cleaning up packages'
       pacman -Rns ...$unlisted_packages_names
    } else {
-      log info 'skipping because there is no packages to cleanup'
+      log info 'skipping packages cleanup - there is nothing to do'
    }
 }
 
@@ -446,44 +425,93 @@ def do-unit [
    enabled_unit_names
 ]: nothing -> nothing {
    log info (
-      $"checking services with user=($unit.user)"
-      + $" and dir_abs_path=($unit.dir_abs_path)"
+      $"checking services to enable - user=($unit.user)"
+      + $" dir_abs_path=($unit.dir_abs_path)"
    )
 
    let unit_names_to_enable = $unit.enable | where {|unit_name|
-      $unit_name not-in $enabled_unit_names
+      let is_unit_disabled = $unit_name not-in $enabled_unit_names
+
+      if not $is_unit_disabled {
+         log info $"skipping unit to enable - already enabled - ($unit_name)"
+      }
+
+      $is_unit_disabled
    }
 
-   if ($unit_names_to_enable | is-empty) {
-      log info $"skipping because the units are already enabled"
-      return
-   }
+   do {
+      if ($unit_names_to_enable | is-empty) {
+         return
+      }
 
-   $unit_names_to_enable | each {|unit_name_to_enable|
-      log info $"enabling service=($unit_name_to_enable) with user=($unit.user)"
+      $unit_names_to_enable | each {|unit_name_to_enable|
+         log info $"enabling service - service=($unit_name_to_enable) owned-by=($unit.user)"
 
-      if (is-admin) and ($unit.user == root) {
-         systemctl enable $unit_name_to_enable
-      } else if (is-admin) {
-         systemctl --user -M $"($unit.user)@" enable $unit_name_to_enable
-      } else if ($unit.user == $env.LOGNAME) {
-         systemctl --user enable $unit_name_to_enable
-      } else {
-         log error (
-            $"skipped because there is no method for"
-            + $" unit=($unit_name_to_enable) owned-by=($unit.user)"
-         )
+         if (is-admin) and ($unit.user == root) {
+            systemctl enable $unit_name_to_enable
+         } else if (is-admin) {
+            systemctl --user -M $"($unit.user)@" enable $unit_name_to_enable
+         } else if ($unit.user == $env.LOGNAME) {
+            systemctl --user enable $unit_name_to_enable
+         } else {
+            log error (
+               'skipped enabling unit - no method - '
+               + $" unit=($unit_name_to_enable) owned-by=($unit.user)"
+            )
+         }
       }
    }
 
-   # TODO: Mask units
+   log info (
+      $"checking services to mask - user=($unit.user)"
+      + $" dir_abs_path=($unit.dir_abs_path)"
+   )
+
+   do {
+      if ($unit.mask | is-empty) {
+         log info (
+            'skipping unit mask - nothing to do - '
+         )
+
+         return
+      }
+
+      $unit.mask | each {|unit_name_to_mask|
+         let unit_file_abs_path = $unit.dir_abs_path | path join $unit_name_to_mask
+
+         if (
+            ($unit_file_abs_path | path exists) and
+            ($unit_file_abs_path | path expand) == ('/dev/null' | path expand)
+         ) {
+            log info (
+               'skipping unit mask - already masked -' +
+               $" unit=($unit_name_to_mask)"
+            )
+
+            return
+         }
+
+         if (is-admin) and ($unit.user == root) {
+            systemctl mask $unit_name_to_mask
+         } else if (is-admin) {
+            systemctl --user -M $"($unit.user)@" mask $unit_name_to_mask
+         } else if ($unit.user == $env.LOGNAME) {
+            systemctl --user enable $unit_name_to_mask
+         } else {
+            log error (
+               "skipped masking unit - no method -"
+               + $" unit=($unit_name_to_mask) owned-by=($unit.user)"
+            )
+         }
+      }
+   }
 }
 
 def cleanup-unit [
    unit
    enabled_unit_names
 ]: nothing -> nothing {
-   log info $"checking units with user=($unit.user) and dir_abs_path=($unit.dir_abs_path)"
+   log info $"checking units to cleanup - user=($unit.user) dir_abs_path=($unit.dir_abs_path)"
 
    let unit_names_to_ignore = $unit.enable
    | each --flatten {|unit_name_to_enable|
@@ -501,7 +529,7 @@ def cleanup-unit [
          | str trim
       } else {
          log error (
-            $"throwing error because there is no method for"
+            "skipped unit cleanup - no method -"
             + $" unit=($unit_name_to_enable) owned-by=($unit.user)"
          )
       }
@@ -516,12 +544,12 @@ def cleanup-unit [
    }
 
    if ($unit_names_to_disable | is-empty) {
-      log info $"skipping because there is no units to cleanup"
+      log info $"skipping units to disable - there is nothing to do"
       return
    }
 
    $unit_names_to_disable | each {|unit_name_to_disable|
-      log info $"attempting to disable unit=($unit_name_to_disable) with user=($unit.user)"
+      log info $"disabling unit - unit=($unit_name_to_disable) owned-by=($unit.user)"
 
       if (is-admin) and ($unit.user == root) {
          systemctl disable $unit_name_to_disable
@@ -531,14 +559,16 @@ def cleanup-unit [
          systemctl --user disable $unit_name_to_disable
       } else {
          log error (
-            $"skipped because there is no method for"
+            $"skipped unit disable - no method -"
             + $" unit=($unit_name_to_disable) owned-by=($unit.user)"
          )
       }
    }
 }
 
-def get-enabled-units [service_dir_abs_path: string] {
+def get-enabled-units [
+   service_dir_abs_path: string
+]: nothing -> oneof<list, nothing> {
    let g = $"($service_dir_abs_path)/*.wants/*"
 
    try {
@@ -556,7 +586,9 @@ def get-enabled-units [service_dir_abs_path: string] {
    }
 }
 
-def build-config [config_dir: path]: nothing -> any {
+def build-config [
+   config_dir: path
+]: nothing -> any {
    let target = $config_dir | path join '*' '**' '*.toml' | into glob
 
    let config = ls $target
