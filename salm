@@ -470,7 +470,7 @@ def do-unit [
    do {
       if ($unit.mask | is-empty) {
          log info (
-            'skipping unit mask - nothing to do - '
+            $"skipping unit mask - nothing to do - dir_abs_path=($unit.dir_abs_path)"
          )
 
          return
