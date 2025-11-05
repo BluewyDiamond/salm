@@ -65,7 +65,7 @@ def 'main install' [
       }
 
       if ($missing_packages | is-empty) {
-         log info "skipping packages management - nothing to do"
+         log info "skipping packages management - already installed"
          return
       }
 
