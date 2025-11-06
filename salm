@@ -498,7 +498,7 @@ def do-unit [
          } else if (is-admin) {
             systemctl --user -M $"($unit.user)@" mask $unit_name_to_mask
          } else if ($unit.user == $env.LOGNAME) {
-            systemctl --user enable $unit_name_to_mask
+            systemctl --user mask $unit_name_to_mask
          } else {
             log error (
                "skipped masking unit - no method -"
