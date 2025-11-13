@@ -413,9 +413,13 @@ def cleanup-packages [
 
 def is-package-a-dependency []: string -> bool {
    let package = $in
-   let package_reverse_dependencies = pactree -rl $package | lines
 
-   $package_reverse_dependencies | get stdout | lines | length | $in > 1
+   pactree -rl $package
+   | complete
+   | get stdout
+   | lines
+   | length
+   | $in > 1
 }
 
 def do-unit [
