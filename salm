@@ -122,23 +122,11 @@ def 'main install' [
 
    do {
       if $config.units == null or ($config.units | is-empty) {
-         log info "skipping units management - nothing to do"
          return
       }
 
       $config.units | each {|unit|
-         let enabled_units = get-enabled-units $unit.dir_abs_path
-
-         if $enabled_units == null {
-            log error $"skipping unit - insufficient permissions - unit_path=($unit.path) owned-by=($unit.user)"
-            return null
-         }
-
-         try {
-            do-unit $unit $enabled_units
-         } catch {|error|
-            $error.rendered | print
-         }
+         enable-units $unit.user ...$unit.enable | print
       }
    }
 
@@ -172,23 +160,11 @@ def 'main cleanup' [
 
    do {
       if $config.units == null or ($config.units | is-empty) {
-         log info "skipping units management - nothing to do"
          return
       }
 
       $config.units | each {|unit|
-         let enabled_units = get-enabled-units $unit.dir_abs_path
-
-         if $enabled_units == null {
-            log error $"skipping unit - insufficient permissions - unit_path=($unit.path) owned-by=($unit.user)"
-            return
-         }
-
-         try {
-            cleanup-unit $unit $enabled_units
-         } catch {|error|
-            $error.rendered | print
-         }
+         disable-units $unit.user ...$unit.enable
       }
    }
 
@@ -422,93 +398,6 @@ def is-package-a-dependency []: string -> bool {
    | $in > 1
 }
 
-def do-unit [
-   unit
-   enabled_unit_names
-]: nothing -> nothing {
-   log info (
-      $"checking services to enable - user=($unit.user)"
-      + $" dir_abs_path=($unit.dir_abs_path)"
-   )
-
-   let unit_names_to_enable = $unit.enable | where {|unit_name|
-      let is_unit_disabled = $unit_name not-in $enabled_unit_names
-
-      if not $is_unit_disabled {
-         log info $"skipping unit to enable - already enabled - ($unit_name)"
-      }
-
-      $is_unit_disabled
-   }
-
-   do {
-      if ($unit_names_to_enable | is-empty) {
-         return
-      }
-
-      $unit_names_to_enable | each {|unit_name_to_enable|
-         log info $"enabling service - service=($unit_name_to_enable) owned-by=($unit.user)"
-
-         if (is-admin) and ($unit.user == root) {
-            systemctl enable $unit_name_to_enable
-         } else if (is-admin) {
-            systemctl --user -M $"($unit.user)@" enable $unit_name_to_enable
-         } else if ($unit.user == $env.LOGNAME) {
-            systemctl --user enable $unit_name_to_enable
-         } else {
-            log error (
-               'skipped enabling unit - no method - '
-               + $" unit=($unit_name_to_enable) owned-by=($unit.user)"
-            )
-         }
-      }
-   }
-
-   log info (
-      $"checking services to mask - user=($unit.user)"
-      + $" dir_abs_path=($unit.dir_abs_path)"
-   )
-
-   do {
-      if ($unit.mask | is-empty) {
-         log info (
-            $"skipping unit mask - nothing to do - dir_abs_path=($unit.dir_abs_path)"
-         )
-
-         return
-      }
-
-      $unit.mask | each {|unit_name_to_mask|
-         let unit_file_abs_path = $unit.dir_abs_path | path join $unit_name_to_mask
-
-         if (
-            ($unit_file_abs_path | path exists) and
-            ($unit_file_abs_path | path expand) == ('/dev/null' | path expand)
-         ) {
-            log info (
-               'skipping unit mask - already masked -' +
-               $" unit=($unit_name_to_mask)"
-            )
-
-            return
-         }
-
-         if (is-admin) and ($unit.user == root) {
-            systemctl mask $unit_name_to_mask
-         } else if (is-admin) {
-            systemctl --user -M $"($unit.user)@" mask $unit_name_to_mask
-         } else if ($unit.user == $env.LOGNAME) {
-            systemctl --user mask $unit_name_to_mask
-         } else {
-            log error (
-               "skipped masking unit - no method -"
-               + $" unit=($unit_name_to_mask) owned-by=($unit.user)"
-            )
-         }
-      }
-   }
-}
-
 def cleanup-unit [
    unit
    enabled_unit_names
@@ -568,24 +457,142 @@ def cleanup-unit [
    }
 }
 
-def get-enabled-units [
-   service_dir_abs_path: string
-]: nothing -> oneof<list, nothing> {
-   let g = $"($service_dir_abs_path)/*.wants/*"
+def disable-units [
+   user: string
+   ...keep_unit_names: string
+]: nothing -> table {
+   let enabled_unit_shapes = get-enabled-unit-shapes --user $user
 
-   try {
-      ls ($g | into glob) | get name | each {|item|
-         $item | path basename
+   let unit_disable_results = $enabled_unit_shapes | each {|enabled_unit_shape|
+      let keep_unit_dependency_names = $keep_unit_names | each --flatten {|keep_unit_name|
+         systemctl list-dependencies --reverse --plain $keep_unit_name
+         | lines
+         | each {|line| $line | str trim }
       }
-   } catch {|$error|
-      if (check-what-error $error ["Permission denied"]) {
-         return null
-      } else if (check-what-error $error ["Pattern, file or folder not found"]) {
-         return []
-      } else {
-         error make $error
+
+      if not (
+         ($enabled_unit_shape.unit_file not-in $keep_unit_names) and
+         ($enabled_unit_shape.unit_file not-in $keep_unit_dependency_names)
+      ) {
+         return {
+            unit: $enabled_unit_shape.unit_file
+            status: 'skipped'
+         }
+      }
+
+      let is_disable_unit_successful = disable-unit --user=$user $enabled_unit_shape.unit_file
+
+      {
+         unit: $enabled_unit_shape.unit_file
+         status: (if $is_disable_unit_successful { 'success' } else { 'failed' })
       }
    }
+
+   $unit_disable_results
+}
+
+def enable-units [
+   user: string
+   ...unit_names: string
+]: nothing -> table {
+   let enabled_unit_shapes = get-enabled-unit-shapes --user $user
+
+   let unit_enable_results = $unit_names | each {|unit_name|
+      if ($unit_name in $enabled_unit_shapes.unit_file) {
+         return {
+            unit: $unit_name
+            status: 'skipped'
+         }
+      }
+
+      let is_enable_unit_successful = enable-unit --user=$user $unit_name
+
+      {
+         unit: $unit_name
+         status: (if $is_enable_unit_successful { 'success' } else { 'failed' })
+      }
+   }
+
+   $unit_enable_results
+}
+
+def enable-unit [
+   --user: string
+   unit_name: string
+]: nothing -> bool {
+   try {
+      if $user == null or $user == 'root' {
+         systemctl enable $unit_name
+      } else {
+         systemctl -M $"($user)@" --user enable $unit_name
+      }
+
+      true
+   } catch {
+      false
+   }
+}
+
+def disable-unit [
+   --user: string
+   unit_name: string
+]: nothing -> bool {
+   try {
+      if $user == null or $user == 'root' {
+         systemctl disable $unit_name
+      } else {
+         systemctl -M $"($user)@" --user disable $unit_name
+      }
+
+      true
+   } catch {
+      false
+   }
+}
+
+def get-enabled-unit-shapes [
+   --user: string
+]: nothing -> table {
+   def list-unit-files [
+      --user: string
+   ]: nothing -> table {
+      if $user == null or $user == 'root' {
+         systemctl list-unit-files --type=service,timer,socket,path --state=enabled --output=json | from json
+      } else {
+         systemctl -M $"($user)@" --user list-unit-files --type=service,timer,socket,path --state=enabled --output=json | from json
+      }
+   }
+
+   def list-units [
+      --user: string
+      ...target: string
+   ]: nothing -> table {
+      if $user == null or $user == 'root' {
+         systemctl list-units ...$target --output=json | from json
+      } else {
+         systemctl -M $"($user)@" --user list-units ...$target --output=json | from json
+      }
+   }
+
+   let unit_shape_ones = list-unit-files --user=$user
+
+   let unit_shape_ones = $unit_shape_ones | each --flatten {|unit_shape_one|
+      if not ($unit_shape_one.unit_file | str contains '@') {
+         return $unit_shape_one
+      }
+
+      let unit_shape_twos = list-units --user=$user ($unit_shape_one.unit_file | str replace @ @*)
+
+      $unit_shape_twos | each {|unit_shape_two|
+         {
+            unit_file: $unit_shape_two.unit
+            state: $unit_shape_one.state
+            preset: $unit_shape_one.preset
+         }
+      }
+   }
+
+   $unit_shape_ones
 }
 
 def build-config [
