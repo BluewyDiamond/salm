@@ -486,18 +486,67 @@ def disable-units [
    user: string
    ...keep_unit_names: string
 ]: nothing -> table {
-   let enabled_unit_shapes = get-enabled-unit-shapes --user $user
+   def list-reverse-dependencies [
+      --user: string
+      unit_name: string
+   ]: nothing -> list {
+      let dependencies = if $user == null or $user == 'root' {
+         systemctl list-dependencies --reverse --plain $unit_name
+      } else {
+         systemctl -M $"($user)@" --user list-dependencies --reverse --plain $unit_name
+      }
+      | lines
+      | each {|line| $line | str trim }
+      | where {|dependency|
+         (
+            ($dependency | str ends-with '.service') or
+            ($dependency | str ends-with '.timer') or
+            ($dependency | str ends-with '.socket') or
+            ($dependency | str ends-with '.path')
+         )
+      }
+      | skip 1
+
+      $dependencies
+   }
+
+   def list-dependencies [
+      --user: string
+      unit_name: string
+   ]: nothing -> list {
+      let dependencies = if $user == null or $user == 'root' {
+         systemctl list-dependencies --plain $unit_name
+      } else {
+         systemctl -M $"($user)@" --user list-dependencies --plain $unit_name
+      }
+      | lines
+      | each {|line| $line | str trim }
+      | where {|dependency|
+         (
+            ($dependency | str ends-with '.service') or
+            ($dependency | str ends-with '.timer') or
+            ($dependency | str ends-with '.socket') or
+            ($dependency | str ends-with '.path')
+         )
+      }
+      | skip 1
+
+      $dependencies
+   }
+
+   let enabled_unit_shapes = get-enabled-unit-shapes --user=$user
 
    let unit_disable_results = $enabled_unit_shapes | each {|enabled_unit_shape|
       let keep_unit_dependency_names = $keep_unit_names | each --flatten {|keep_unit_name|
-         systemctl list-dependencies --reverse --plain $keep_unit_name
-         | lines
-         | each {|line| $line | str trim }
+         list-dependencies --user=$user $keep_unit_name
       }
 
-      if not (
-         ($enabled_unit_shape.unit_file not-in $keep_unit_names) and
-         ($enabled_unit_shape.unit_file not-in $keep_unit_dependency_names)
+      let unit_reverse_dependency_names = list-reverse-dependencies --user=$user $enabled_unit_shape.unit_file
+
+      if (
+         ($enabled_unit_shape.unit_file in $keep_unit_names) or
+         ($enabled_unit_shape.unit_file in $keep_unit_dependency_names) or
+         ($unit_reverse_dependency_names | any {|unit_reverse_dependancy_name| $unit_reverse_dependancy_name in $keep_unit_names })
       ) {
          return {
             unit: $enabled_unit_shape.unit_file
