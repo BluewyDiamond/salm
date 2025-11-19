@@ -39,17 +39,17 @@ def 'main install' [
 
    do {
       if $config.files? == null or ($config.files | is-empty) {
-         log info "skipping files management - nothing to do"
          return
       }
 
       $config.files | each {|file|
-         try {
-            install-file $file
-         } catch {|error|
-            $error.rendered | print
+         let install_result = install-file $file
+
+         {
+            target: $file.target_abs_path
+            status: $install_result.status
          }
-      }
+      } | print
    }
 
    do {
@@ -164,7 +164,7 @@ def 'main cleanup' [
       }
 
       $config.units | each {|unit|
-         disable-units $unit.user ...$unit.enable
+         disable-units $unit.user ...$unit.enable | print
       }
    }
 
@@ -173,7 +173,7 @@ def 'main cleanup' [
 
 def install-file [
    file: record
-]: nothing -> nothing {
+]: nothing -> record<status: string> {
    log info (
       "checking file to install -" +
       $" owner=($file.owner) target=($file.target_abs_path)"
@@ -190,176 +190,201 @@ def install-file [
 
       _ => {
          log error $"skipped file install - no method - action=($file.action)"
+         {status: 'failed'}
       }
    }
 }
 
 def copy-file [
    file
-]: nothing -> nothing {
+]: nothing -> record<status: string> {
    let source_abs_path_type = $file.source_abs_path | path type
    let target_abs_path_type = $file.target_abs_path | path type
 
-   match [$source_abs_path_type $target_abs_path_type] {
-      [null _] => {
-         log error (
-            $"skipped copy - source does not exist -"
-            + $" source=($file.source_abs_path)"
-         )
-      }
-
-      [_ null] => {
-         let target_dir_abs_path = $file.target_abs_path | path dirname
-
-         if not ($target_dir_abs_path | path exists) {
-            mkdir $target_dir_abs_path
-         }
-
-         log info $"copying file - target=($file.target_abs_path)"
-         cp -r $file.source_abs_path $file.target_abs_path
-         chmod $file.chmod $file.target_abs_path
-         chown -R $"($file.owner):($file.group)" $file.target_abs_path
-      }
-
-      [dir dir] => {
-         if (
-            diff
-            -rq
-            $file.target_abs_path
-            $file.source_abs_path
-            | complete
-            | get exit_code
-            | $in == 0
-         ) {
-            log info (
-               $"skipping dir copy - target matches - target=($file.target_abs_path)"
+   try {
+      match [$source_abs_path_type $target_abs_path_type] {
+         [null _] => {
+            log error (
+               $"skipped copy - source does not exist -"
+               + $" source=($file.source_abs_path)"
             )
 
-            return
+            {status: 'failed'}
          }
 
-         log info $"copying dir - target=($file.target_abs_path)"
-         rm -r $file.target_abs_path
-         cp -r $file.source_abs_path $file.target_abs_path
-         chmod $file.chmod $file.target_abs_path
-         chown -R $"($file.owner):($file.group)" $file.target_abs_path
-      }
+         [_ null] => {
+            let target_dir_abs_path = $file.target_abs_path | path dirname
 
-      [file file] => {
-         let target_file = open --raw $file.target_abs_path
-         let source_file = open --raw $file.source_abs_path
+            if not ($target_dir_abs_path | path exists) {
+               mkdir $target_dir_abs_path
+            }
 
-         if ($target_file == $source_file) {
-            log info (
-               $"skipping file copy - target matches - target=($file.target_abs_path)"
+            log info $"copying file - target=($file.target_abs_path)"
+            cp -r $file.source_abs_path $file.target_abs_path
+            chmod $file.chmod $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [dir dir] => {
+            if (
+               diff
+               -rq
+               $file.target_abs_path
+               $file.source_abs_path
+               | complete
+               | get exit_code
+               | $in == 0
+            ) {
+               log info (
+                  $"skipping dir copy - target matches - target=($file.target_abs_path)"
+               )
+
+               return {status: 'skipped'}
+            }
+
+            log info $"copying dir - target=($file.target_abs_path)"
+            rm -r $file.target_abs_path
+            cp -r $file.source_abs_path $file.target_abs_path
+            chmod $file.chmod $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [file file] => {
+            let target_file = open --raw $file.target_abs_path
+            let source_file = open --raw $file.source_abs_path
+
+            if ($target_file == $source_file) {
+               log info (
+                  $"skipping file copy - target matches - target=($file.target_abs_path)"
+               )
+
+               return {status: 'skipped'}
+            }
+
+            log info $"copying file - target=($file.target_abs_path)"
+            rm $file.target_abs_path
+            cp $file.source_abs_path $file.target_abs_path
+            chmod $file.chmod $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [symlink symlink] => {
+            if (
+               ($file.source_abs_path | path expand) ==
+               ($file.target_abs_path | path expand)
+            ) {
+               log info (
+                  $"skipping symlink copy - target matches - target=($file.target_abs_path)"
+               )
+
+               return {status: 'skipped'}
+            }
+
+            log info $"copying symlink - target=($file.target_abs_path)"
+            unlink $file.target_abs_path
+            cp $file.source_abs_path $file.target_abs_path
+            chmod $file.chmod $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ _] => {
+            log error (
+               $"skipped copying - no method - action=($file.action)" +
+               $" source=($file.source_abs_path)" +
+               $" target=($file.target_abs_path)"
             )
 
-            return
+            {status: 'failed'}
          }
-
-         log info $"copying file - target=($file.target_abs_path)"
-         rm $file.target_abs_path
-         cp $file.source_abs_path $file.target_abs_path
-         chmod $file.chmod $file.target_abs_path
-         chown -R $"($file.owner):($file.group)" $file.target_abs_path
       }
-
-      [symlink symlink] => {
-         if (
-            ($file.source_abs_path | path expand) ==
-            ($file.target_abs_path | path expand)
-         ) {
-            log info (
-               $"skipping symlink copy - target matches - target=($file.target_abs_path)"
-            )
-
-            return
-         }
-
-         log info $"copying symlink - target=($file.target_abs_path)"
-         unlink $file.target_abs_path
-         cp $file.source_abs_path $file.target_abs_path
-         chmod $file.chmod $file.target_abs_path
-         chown -R $"($file.owner):($file.group)" $file.target_abs_path
-      }
-
-      [_ _] => {
-         log error (
-            $"skipped copying - no method - action=($file.action)" +
-            $" source=($file.source_abs_path)" +
-            $" target=($file.target_abs_path)"
-         )
-      }
+   } catch {
+      {status: 'failed'}
    }
 }
 
 def link-file [
    file
-]: nothing -> nothing {
+]: nothing -> record<status: string> {
    let source_abs_path_type = $file.source_abs_path | path type
    let target_abs_path_type = $file.target_abs_path | path type
 
-   match [$source_abs_path_type $target_abs_path_type] {
-      [null _] => {
-         (
-            log
-            error
-            $"skipped link - source does not exist - source=($file.source_abs_path)"
-         )
-      }
-
-      [_ null] => {
-
-         let target_parent_dir_abs_path = $file.target_abs_path | path dirname
-
-         if not ($target_parent_dir_abs_path | path exists) {
-            mkdir $target_parent_dir_abs_path
-         }
-
-         log info $"linking - target=($file.target_abs_path)"
-         ln -s $file.source_abs_path $file.target_abs_path
-         chown -R $"($file.owner):($file.group)" $file.target_abs_path
-      }
-
-      [_ dir] => {
-         log info $"linking - target=($file.target_abs_path)"
-         rm -r $file.target_abs_path
-         ln -s $file.source_abs_path $file.target_abs_path
-         chown -R $"($file.owner):($file.group)" $file.target_abs_path
-      }
-
-      [_ file] => {
-         log info $"linking - target=($file.target_abs_path)"
-         rm $file.target_abs_path
-         ln -s $file.source_abs_path $file.target_abs_path
-         chown -R $"($file.owner):($file.group)" $file.target_abs_path
-      }
-
-      [_ symlink] => {
-         if (
-            ($file.target_abs_path | path expand) ==
-            $file.source_abs_path
-         ) {
-            log info (
-               $"skipping link - target matches - target=($file.target_abs_path)"
+   try {
+      match [$source_abs_path_type $target_abs_path_type] {
+         [null _] => {
+            (
+               log
+               error
+               $"skipped link - source does not exist - source=($file.source_abs_path)"
             )
 
-            return
+            {status: 'failed'}
          }
 
-         log info $"linking - target=($file.target_abs_path)"
-         unlink $file.target_abs_path
-         ln -s $file.source_abs_path $file.target_abs_path
-         chown -R $"($file.owner):($file.group)" $file.target_abs_path
-      }
+         [_ null] => {
 
-      [_ _] => {
-         log error (
-            $"skipped link - no method - action=($file.action)" +
-            $" source=($file.source_abs_path)" +
-            $" target=($file.target_abs_path)"
-         )
+            let target_parent_dir_abs_path = $file.target_abs_path | path dirname
+
+            if not ($target_parent_dir_abs_path | path exists) {
+               mkdir $target_parent_dir_abs_path
+            }
+
+            log info $"linking - target=($file.target_abs_path)"
+            ln -s $file.source_abs_path $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ dir] => {
+            log info $"linking - target=($file.target_abs_path)"
+            rm -r $file.target_abs_path
+            ln -s $file.source_abs_path $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ file] => {
+            log info $"linking - target=($file.target_abs_path)"
+            rm $file.target_abs_path
+            ln -s $file.source_abs_path $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ symlink] => {
+            if (
+               ($file.target_abs_path | path expand) ==
+               $file.source_abs_path
+            ) {
+               log info (
+                  $"skipping link - target matches - target=($file.target_abs_path)"
+               )
+
+               return {status: 'skipped'}
+            }
+
+            log info $"linking - target=($file.target_abs_path)"
+            unlink $file.target_abs_path
+            ln -s $file.source_abs_path $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ _] => {
+            log error (
+               $"skipped link - no method - action=($file.action)" +
+               $" source=($file.source_abs_path)" +
+               $" target=($file.target_abs_path)"
+            )
+
+            {status: 'failed'}
+         }
       }
+   } catch {
+      {status: 'failed'}
    }
 }
 
