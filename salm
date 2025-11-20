@@ -1,7 +1,5 @@
 #!/usr/bin/env -S nu '--experimental-options=[reorder-cell-paths pipefail enforce-runtime-annotations]'
 
-use std/log
-
 # Reads *.toml recursively and does stuff.
 def main [] { }
 
@@ -54,7 +52,6 @@ def 'main install' [
 
    do {
       if $config.packages? == null or ($config.packages | is-empty) {
-         log info "skipping packages management - nothing to do"
          return
       }
 
@@ -65,11 +62,8 @@ def 'main install' [
       }
 
       if ($missing_packages | is-empty) {
-         log info "skipping packages install - already installed"
          return
       }
-
-      log info 'checking packages to install'
 
       let missing_std_package_names = $missing_packages
       | where from == 'std'
@@ -147,7 +141,6 @@ def 'main cleanup' [
 
    do {
       if $config.packages? == null or ($config.packages | is-empty) {
-         log info "skipping packages management - nothing to do"
          return
       }
 
@@ -174,11 +167,6 @@ def 'main cleanup' [
 def install-file [
    file: record
 ]: nothing -> record<status: string> {
-   log info (
-      "checking file to install -" +
-      $" owner=($file.owner) target=($file.target_abs_path)"
-   )
-
    match $file.action {
       copy => {
          copy-file $file
@@ -189,7 +177,6 @@ def install-file [
       }
 
       _ => {
-         log error $"skipped file install - no method - action=($file.action)"
          {status: 'failed'}
       }
    }
@@ -204,11 +191,6 @@ def copy-file [
    try {
       match [$source_abs_path_type $target_abs_path_type] {
          [null _] => {
-            log error (
-               $"skipped copy - source does not exist -"
-               + $" source=($file.source_abs_path)"
-            )
-
             {status: 'failed'}
          }
 
@@ -219,7 +201,6 @@ def copy-file [
                mkdir $target_dir_abs_path
             }
 
-            log info $"copying file - target=($file.target_abs_path)"
             cp -r $file.source_abs_path $file.target_abs_path
             chmod $file.chmod $file.target_abs_path
             chown -R $"($file.owner):($file.group)" $file.target_abs_path
@@ -236,14 +217,9 @@ def copy-file [
                | get exit_code
                | $in == 0
             ) {
-               log info (
-                  $"skipping dir copy - target matches - target=($file.target_abs_path)"
-               )
-
                return {status: 'skipped'}
             }
 
-            log info $"copying dir - target=($file.target_abs_path)"
             rm -r $file.target_abs_path
             cp -r $file.source_abs_path $file.target_abs_path
             chmod $file.chmod $file.target_abs_path
@@ -256,14 +232,9 @@ def copy-file [
             let source_file = open --raw $file.source_abs_path
 
             if ($target_file == $source_file) {
-               log info (
-                  $"skipping file copy - target matches - target=($file.target_abs_path)"
-               )
-
                return {status: 'skipped'}
             }
 
-            log info $"copying file - target=($file.target_abs_path)"
             rm $file.target_abs_path
             cp $file.source_abs_path $file.target_abs_path
             chmod $file.chmod $file.target_abs_path
@@ -276,14 +247,9 @@ def copy-file [
                ($file.source_abs_path | path expand) ==
                ($file.target_abs_path | path expand)
             ) {
-               log info (
-                  $"skipping symlink copy - target matches - target=($file.target_abs_path)"
-               )
-
                return {status: 'skipped'}
             }
 
-            log info $"copying symlink - target=($file.target_abs_path)"
             unlink $file.target_abs_path
             cp $file.source_abs_path $file.target_abs_path
             chmod $file.chmod $file.target_abs_path
@@ -292,12 +258,6 @@ def copy-file [
          }
 
          [_ _] => {
-            log error (
-               $"skipped copying - no method - action=($file.action)" +
-               $" source=($file.source_abs_path)" +
-               $" target=($file.target_abs_path)"
-            )
-
             {status: 'failed'}
          }
       }
@@ -315,12 +275,6 @@ def link-file [
    try {
       match [$source_abs_path_type $target_abs_path_type] {
          [null _] => {
-            (
-               log
-               error
-               $"skipped link - source does not exist - source=($file.source_abs_path)"
-            )
-
             {status: 'failed'}
          }
 
@@ -332,14 +286,12 @@ def link-file [
                mkdir $target_parent_dir_abs_path
             }
 
-            log info $"linking - target=($file.target_abs_path)"
             ln -s $file.source_abs_path $file.target_abs_path
             chown -R $"($file.owner):($file.group)" $file.target_abs_path
             {status: 'success'}
          }
 
          [_ dir] => {
-            log info $"linking - target=($file.target_abs_path)"
             rm -r $file.target_abs_path
             ln -s $file.source_abs_path $file.target_abs_path
             chown -R $"($file.owner):($file.group)" $file.target_abs_path
@@ -347,7 +299,6 @@ def link-file [
          }
 
          [_ file] => {
-            log info $"linking - target=($file.target_abs_path)"
             rm $file.target_abs_path
             ln -s $file.source_abs_path $file.target_abs_path
             chown -R $"($file.owner):($file.group)" $file.target_abs_path
@@ -359,14 +310,9 @@ def link-file [
                ($file.target_abs_path | path expand) ==
                $file.source_abs_path
             ) {
-               log info (
-                  $"skipping link - target matches - target=($file.target_abs_path)"
-               )
-
                return {status: 'skipped'}
             }
 
-            log info $"linking - target=($file.target_abs_path)"
             unlink $file.target_abs_path
             ln -s $file.source_abs_path $file.target_abs_path
             chown -R $"($file.owner):($file.group)" $file.target_abs_path
@@ -374,12 +320,6 @@ def link-file [
          }
 
          [_ _] => {
-            log error (
-               $"skipped link - no method - action=($file.action)" +
-               $" source=($file.source_abs_path)" +
-               $" target=($file.target_abs_path)"
-            )
-
             {status: 'failed'}
          }
       }
@@ -404,7 +344,6 @@ def cleanup-packages [
       $is_package_a_dependency
    }
 
-   log info 'checking packages to cleanup'
    let installed_package_names = pacman -Qq | lines
    let package_names = $packages | par-each {|package| $package.name }
 
@@ -422,10 +361,8 @@ def cleanup-packages [
    }
 
    if ($unlisted_packages_names | is-not-empty) {
-      log info 'cleaning up packages'
       pacman -Rns ...$unlisted_packages_names
    } else {
-      log info 'skipping packages cleanup - there is nothing to do'
    }
 }
 
