@@ -410,16 +410,16 @@ def enable-units [
 
 def cleanup-units [
    user: string
-   ...keep_unit_names: string
+   ...units_to_keep: string
 ]: nothing -> table {
    def list-reverse-dependencies [
       --user: string
-      unit_name: string
+      unit: string
    ]: nothing -> list {
       let dependencies = if $user == null or $user == 'root' {
-         systemctl list-dependencies --reverse --plain $unit_name
+         systemctl list-dependencies --reverse --plain $unit
       } else {
-         systemctl -M $"($user)@" --user list-dependencies --reverse --plain $unit_name
+         systemctl -M $"($user)@" --user list-dependencies --reverse --plain $unit
       }
       | lines
       | each {|line| $line | str trim }
@@ -438,48 +438,51 @@ def cleanup-units [
 
    def list-dependencies [
       --user: string
-      unit_name: string
+      unit: string
    ]: nothing -> list {
-      let dependency_names = if $user == null or $user == 'root' {
-         systemctl list-dependencies --plain $unit_name
+      let dependency = if $user == null or $user == 'root' {
+         systemctl list-dependencies --plain $unit
       } else {
-         systemctl -M $"($user)@" --user list-dependencies --plain $unit_name
+         systemctl -M $"($user)@" --user list-dependencies --plain $unit
       }
       | lines
       | each {|line| $line | str trim }
-      | where {|dependency_name|
+      | where {|dependency|
          (
-            ($dependency_name | str ends-with '.service') or
-            ($dependency_name | str ends-with '.timer') or
-            ($dependency_name | str ends-with '.socket') or
-            ($dependency_name | str ends-with '.path')
+            ($dependency | str ends-with '.service') or
+            ($dependency | str ends-with '.timer') or
+            ($dependency | str ends-with '.socket') or
+            ($dependency | str ends-with '.path')
          )
       }
       | skip 1
 
-      $dependency_names
+      $dependency
    }
 
    let enabled_unit_shapes = get-enabled-unit-shapes --user=$user
 
-   let unit_disable_results = $enabled_unit_shapes | each {|enabled_unit_shape|
-      let keep_unit_dependency_names = $keep_unit_names | each --flatten {|keep_unit_name|
-         list-dependencies --user=$user $keep_unit_name
+   let disable_results = $enabled_unit_shapes | each {|enabled_unit_shape|
+      let unit_dependencies_to_keep = $units_to_keep | each --flatten {|unit_to_keep|
+         list-dependencies --user=$user $unit_to_keep
       }
 
-      let unit_reverse_dependency_names = (
-         list-reverse-dependencies --user=$user $enabled_unit_shape.unit_file
+      let unit_dependencies = (
+         list-dependencies --user=$user $enabled_unit_shape.unit_file
       )
 
-      let unit_reverse_dependency_names_in_keep_unit_names = $unit_reverse_dependency_names
-      | any {|unit_reverse_dependency_name|
-         $unit_reverse_dependency_name in $keep_unit_names
+      let has_enabled_unit_depedencies_in_units_to_keep_and_its_dependencies = $unit_dependencies
+      | any {|unit_dependency|
+         (
+            ($unit_dependency in $units_to_keep) or
+            ($unit_dependency in $unit_dependencies_to_keep)
+         )
       }
 
       if (
-         ($enabled_unit_shape.unit_file in $keep_unit_names) or
-         ($enabled_unit_shape.unit_file in $keep_unit_dependency_names) or
-         $unit_reverse_dependency_names_in_keep_unit_names
+         ($enabled_unit_shape.unit_file in $units_to_keep) or
+         ($enabled_unit_shape.unit_file in $unit_dependencies_to_keep) or
+         $has_enabled_unit_depedencies_in_units_to_keep_and_its_dependencies
       ) {
          return {
             unit: $enabled_unit_shape.unit_file
@@ -487,8 +490,8 @@ def cleanup-units [
          }
       }
 
-      let is_disable_unit_successful = disable-unit --user=$user $enabled_unit_shape.unit_file
-      let status = if $is_disable_unit_successful { 'success' } else { 'failed' }
+      let disabled_successfully = disable-unit --user=$user $enabled_unit_shape.unit_file
+      let status = if $disabled_successfully { 'success' } else { 'failed' }
 
       {
          unit: $enabled_unit_shape.unit_file
@@ -496,7 +499,7 @@ def cleanup-units [
       }
    }
 
-   $unit_disable_results
+   $disable_results
 }
 
 def enable-unit [
