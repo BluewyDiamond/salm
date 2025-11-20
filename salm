@@ -391,17 +391,34 @@ def link-file [
 def cleanup-packages [
    packages
 ]: nothing -> nothing {
+   def is-package-a-dependency []: string -> bool {
+      let package_name = $in
+
+      let is_package_a_dependency = pactree -rl $package_name
+      | complete
+      | get stdout
+      | lines
+      | length
+      | $in > 1
+
+      $is_package_a_dependency
+   }
+
    log info 'checking packages to cleanup'
    let installed_package_names = pacman -Qq | lines
    let package_names = $packages | par-each {|package| $package.name }
 
    let unlisted_packages_names = $installed_package_names
    | par-each {|installed_package_name|
-      if not ($installed_package_name | is-package-a-dependency) {
-         if $installed_package_name not-in $package_names {
-            $installed_package_name
-         }
+      if ($installed_package_name | is-package-a-dependency) {
+         return
       }
+
+      if $installed_package_name in $package_names {
+         return
+      }
+
+      $installed_package_name
    }
 
    if ($unlisted_packages_names | is-not-empty) {
@@ -412,15 +429,30 @@ def cleanup-packages [
    }
 }
 
-def is-package-a-dependency []: string -> bool {
-   let package = $in
+def enable-units [
+   user: string
+   ...unit_names: string
+]: nothing -> table {
+   let enabled_unit_shapes = get-enabled-unit-shapes --user $user
 
-   pactree -rl $package
-   | complete
-   | get stdout
-   | lines
-   | length
-   | $in > 1
+   let unit_enable_results = $unit_names | each {|unit_name|
+      if ($unit_name in $enabled_unit_shapes.unit_file) {
+         return {
+            unit: $unit_name
+            status: 'skipped'
+         }
+      }
+
+      let is_enable_unit_successful = enable-unit --user=$user $unit_name
+      let status = if $is_enable_unit_successful { 'success' } else { 'failed' }
+
+      {
+         unit: $unit_name
+         status: $status
+      }
+   }
+
+   $unit_enable_results
 }
 
 def cleanup-units [
@@ -455,24 +487,24 @@ def cleanup-units [
       --user: string
       unit_name: string
    ]: nothing -> list {
-      let dependencies = if $user == null or $user == 'root' {
+      let dependency_names = if $user == null or $user == 'root' {
          systemctl list-dependencies --plain $unit_name
       } else {
          systemctl -M $"($user)@" --user list-dependencies --plain $unit_name
       }
       | lines
       | each {|line| $line | str trim }
-      | where {|dependency|
+      | where {|dependency_name|
          (
-            ($dependency | str ends-with '.service') or
-            ($dependency | str ends-with '.timer') or
-            ($dependency | str ends-with '.socket') or
-            ($dependency | str ends-with '.path')
+            ($dependency_name | str ends-with '.service') or
+            ($dependency_name | str ends-with '.timer') or
+            ($dependency_name | str ends-with '.socket') or
+            ($dependency_name | str ends-with '.path')
          )
       }
       | skip 1
 
-      $dependencies
+      $dependency_names
    }
 
    let enabled_unit_shapes = get-enabled-unit-shapes --user=$user
@@ -482,12 +514,19 @@ def cleanup-units [
          list-dependencies --user=$user $keep_unit_name
       }
 
-      let unit_reverse_dependency_names = list-reverse-dependencies --user=$user $enabled_unit_shape.unit_file
+      let unit_reverse_dependency_names = (
+         list-reverse-dependencies --user=$user $enabled_unit_shape.unit_file
+      )
+
+      let unit_reverse_dependency_names_in_keep_unit_names = $unit_reverse_dependency_names
+      | any {|unit_reverse_dependency_name|
+         $unit_reverse_dependency_name in $keep_unit_names
+      }
 
       if (
          ($enabled_unit_shape.unit_file in $keep_unit_names) or
          ($enabled_unit_shape.unit_file in $keep_unit_dependency_names) or
-         ($unit_reverse_dependency_names | any {|unit_reverse_dependancy_name| $unit_reverse_dependancy_name in $keep_unit_names })
+         $unit_reverse_dependency_names_in_keep_unit_names
       ) {
          return {
             unit: $enabled_unit_shape.unit_file
@@ -496,39 +535,15 @@ def cleanup-units [
       }
 
       let is_disable_unit_successful = disable-unit --user=$user $enabled_unit_shape.unit_file
+      let status = if $is_disable_unit_successful { 'success' } else { 'failed' }
 
       {
          unit: $enabled_unit_shape.unit_file
-         status: (if $is_disable_unit_successful { 'success' } else { 'failed' })
+         status: $status
       }
    }
 
    $unit_disable_results
-}
-
-def enable-units [
-   user: string
-   ...unit_names: string
-]: nothing -> table {
-   let enabled_unit_shapes = get-enabled-unit-shapes --user $user
-
-   let unit_enable_results = $unit_names | each {|unit_name|
-      if ($unit_name in $enabled_unit_shapes.unit_file) {
-         return {
-            unit: $unit_name
-            status: 'skipped'
-         }
-      }
-
-      let is_enable_unit_successful = enable-unit --user=$user $unit_name
-
-      {
-         unit: $unit_name
-         status: (if $is_enable_unit_successful { 'success' } else { 'failed' })
-      }
-   }
-
-   $unit_enable_results
 }
 
 def enable-unit [
@@ -537,9 +552,9 @@ def enable-unit [
 ]: nothing -> bool {
    try {
       if $user == null or $user == 'root' {
-         systemctl enable $unit_name
+         systemctl enable $unit_name e>| ignore
       } else {
-         systemctl -M $"($user)@" --user enable $unit_name
+         systemctl -M $"($user)@" --user enable $unit_name e>| ignore
       }
 
       true
@@ -554,9 +569,9 @@ def disable-unit [
 ]: nothing -> bool {
    try {
       if $user == null or $user == 'root' {
-         systemctl disable $unit_name
+         systemctl disable $unit_name e>| ignore
       } else {
-         systemctl -M $"($user)@" --user disable $unit_name
+         systemctl -M $"($user)@" --user disable $unit_name e>| ignore
       }
 
       true
@@ -591,14 +606,17 @@ def get-enabled-unit-shapes [
 
    let unit_shape_ones = list-unit-files --user=$user
 
-   let unit_shape_ones = $unit_shape_ones | each --flatten {|unit_shape_one|
+   let unit_shape_ones = $unit_shape_ones
+   | each --flatten {|unit_shape_one|
       if not ($unit_shape_one.unit_file | str contains '@') {
          return $unit_shape_one
       }
 
-      let unit_shape_twos = list-units --user=$user ($unit_shape_one.unit_file | str replace @ @*)
+      let unit_name_wildcard = ($unit_shape_one.unit_file | str replace @ @*)
+      let unit_shape_twos = list-units --user=$user $unit_name_wildcard
 
-      $unit_shape_twos | each {|unit_shape_two|
+      $unit_shape_twos
+      | each {|unit_shape_two|
          {
             unit_file: $unit_shape_two.unit
             state: $unit_shape_one.state
@@ -711,7 +729,6 @@ def build-config [
                | default []
 
                let units = $units | append {
-                  dir_abs_path: $raw_unit.path
                   user: $raw_unit.user
                   mask: $raw_unit.mask?
                   enable: $raw_unit.enable?
