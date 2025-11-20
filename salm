@@ -62,6 +62,7 @@ def 'main install' [
       }
 
       if ($missing_packages | is-empty) {
+         {std_packages: 'skipped' aur_packages: 'skipped' local_packages: 'skipped'} | print
          return
       }
 
@@ -69,15 +70,16 @@ def 'main install' [
       | where from == 'std'
       | each {|missing_package| $missing_package.name }
 
-      do {
+      let install_std_packages_status: string = do {
          if ($missing_std_package_names | is-empty) {
-            return
+            return 'skipped'
          }
 
          try {
             pacman -S ...$missing_std_package_names
-         } catch {|error|
-            $error.rendered | print
+            'success'
+         } catch {
+            'failed'
          }
       }
 
@@ -85,15 +87,16 @@ def 'main install' [
       | where from == 'aur'
       | each {|missing_aur_package| $missing_aur_package.name }
 
-      do {
+      let install_aur_packages_status: string = do {
          if ($missing_aur_package_names | is-empty) {
-            return
+            return 'skipped'
          }
 
          try {
             paru -S --aur ...$missing_aur_package_names
-         } catch {|error|
-            $error.rendered | print
+            'success'
+         } catch {
+            'failed'
          }
       }
 
@@ -101,17 +104,24 @@ def 'main install' [
       | where from == 'lcl'
       | each {|missing_package| $missing_package.path }
 
-      do {
+      let install_local_packages_status = do {
          if ($missing_local_package_paths | is-empty) {
-            return
+            return 'skipped'
          }
 
          try {
             paru -Bi ...$missing_local_package_paths
-         } catch {|error|
-            $error.rendered | print
+            'success'
+         } catch {
+            'failed'
          }
       }
+
+      {
+         std_packages: $install_std_packages_status
+         aur_packages: $install_std_packages_status
+         local_packages: $install_local_packages_status
+      } | print
    }
 
    do {
@@ -144,11 +154,7 @@ def 'main cleanup' [
          return
       }
 
-      try {
-         cleanup-packages $config.packages
-      } catch {|error|
-         $error.rendered | print
-      }
+      cleanup-packages $config.packages | table -e | print
    }
 
    do {
@@ -330,7 +336,7 @@ def link-file [
 
 def cleanup-packages [
    packages
-]: nothing -> nothing {
+]: nothing -> record {
    def is-package-a-dependency []: string -> bool {
       let package_name = $in
 
@@ -360,9 +366,19 @@ def cleanup-packages [
       $installed_package_name
    }
 
-   if ($unlisted_packages_names | is-not-empty) {
+   if ($unlisted_packages_names | is-empty) {
+      return {
+         packages: {
+            status: 'skipped'
+         }
+      }
+   }
+
+   try {
       pacman -Rns ...$unlisted_packages_names
-   } else {
+      {packages: {status: 'success'}}
+   } catch {
+      {packages: {status: 'failed'}}
    }
 }
 
