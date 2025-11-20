@@ -35,105 +35,9 @@ def 'main install' [
    let config = build-config $config_dir
    let config = $config | get ($profiles | first) ...($profiles | drop 1)
 
-   do {
-      if $config.files? == null or ($config.files | is-empty) {
-         return
-      }
-
-      $config.files | each {|file|
-         let install_result = install-file $file
-
-         {
-            target: $file.target_abs_path
-            status: $install_result.status
-         }
-      } | print
-   }
-
-   do {
-      if $config.packages? == null or ($config.packages | is-empty) {
-         return
-      }
-
-      let installed_packages = pacman -Qq | lines
-
-      let missing_packages = $config.packages | where {|package|
-         ($package.name not-in $installed_packages) and $package.ignore == false
-      }
-
-      if ($missing_packages | is-empty) {
-         {std_packages: 'skipped' aur_packages: 'skipped' local_packages: 'skipped'} | print
-         return
-      }
-
-      let missing_std_package_names = $missing_packages
-      | where from == 'std'
-      | each {|missing_package| $missing_package.name }
-
-      let install_std_packages_status: string = do {
-         if ($missing_std_package_names | is-empty) {
-            return 'skipped'
-         }
-
-         try {
-            pacman -S ...$missing_std_package_names
-            'success'
-         } catch {
-            'failed'
-         }
-      }
-
-      let missing_aur_package_names = $missing_packages
-      | where from == 'aur'
-      | each {|missing_aur_package| $missing_aur_package.name }
-
-      let install_aur_packages_status: string = do {
-         if ($missing_aur_package_names | is-empty) {
-            return 'skipped'
-         }
-
-         try {
-            paru -S --aur ...$missing_aur_package_names
-            'success'
-         } catch {
-            'failed'
-         }
-      }
-
-      let missing_local_package_paths = $missing_packages
-      | where from == 'lcl'
-      | each {|missing_package| $missing_package.path }
-
-      let install_local_packages_status = do {
-         if ($missing_local_package_paths | is-empty) {
-            return 'skipped'
-         }
-
-         try {
-            paru -Bi ...$missing_local_package_paths
-            'success'
-         } catch {
-            'failed'
-         }
-      }
-
-      {
-         std_packages: $install_std_packages_status
-         aur_packages: $install_std_packages_status
-         local_packages: $install_local_packages_status
-      } | print
-   }
-
-   do {
-      if $config.units == null or ($config.units | is-empty) {
-         return
-      }
-
-      $config.units | each {|unit|
-         enable-units $unit.user ...$unit.enable | print
-      }
-   }
-
+   install-files $config.files?
+   install-packages $config.packages?
+   do-units $config.units?
    null
 }
 
@@ -170,167 +74,108 @@ def 'main cleanup' [
    null
 }
 
-def install-file [
-   file: record
-]: nothing -> record<status: string> {
-   match $file.action {
-      copy => {
-         copy-file $file
-      }
-
-      link => {
-         link-file $file
-      }
-
-      _ => {
-         {status: 'failed'}
-      }
+def install-files [
+   files: oneof<table, nothing>
+]: nothing -> nothing {
+   if $files == null or (files | is-empty) {
+      return
    }
+
+   $files | each {|file|
+      let install_result = install-file $file
+
+      {
+         target: $file.target_abs_path
+         status: $install_result.status
+      }
+   } | print
 }
 
-def copy-file [
-   file
-]: nothing -> record<status: string> {
-   let source_abs_path_type = $file.source_abs_path | path type
-   let target_abs_path_type = $file.target_abs_path | path type
-
-   try {
-      match [$source_abs_path_type $target_abs_path_type] {
-         [null _] => {
-            {status: 'failed'}
-         }
-
-         [_ null] => {
-            let target_dir_abs_path = $file.target_abs_path | path dirname
-
-            if not ($target_dir_abs_path | path exists) {
-               mkdir $target_dir_abs_path
-            }
-
-            cp -r $file.source_abs_path $file.target_abs_path
-            chmod $file.chmod $file.target_abs_path
-            chown -R $"($file.owner):($file.group)" $file.target_abs_path
-            {status: 'success'}
-         }
-
-         [dir dir] => {
-            if (
-               diff
-               -rq
-               $file.target_abs_path
-               $file.source_abs_path
-               | complete
-               | get exit_code
-               | $in == 0
-            ) {
-               return {status: 'skipped'}
-            }
-
-            rm -r $file.target_abs_path
-            cp -r $file.source_abs_path $file.target_abs_path
-            chmod $file.chmod $file.target_abs_path
-            chown -R $"($file.owner):($file.group)" $file.target_abs_path
-            {status: 'success'}
-         }
-
-         [file file] => {
-            let target_file = open --raw $file.target_abs_path
-            let source_file = open --raw $file.source_abs_path
-
-            if ($target_file == $source_file) {
-               return {status: 'skipped'}
-            }
-
-            rm $file.target_abs_path
-            cp $file.source_abs_path $file.target_abs_path
-            chmod $file.chmod $file.target_abs_path
-            chown -R $"($file.owner):($file.group)" $file.target_abs_path
-            {status: 'success'}
-         }
-
-         [symlink symlink] => {
-            if (
-               ($file.source_abs_path | path expand) ==
-               ($file.target_abs_path | path expand)
-            ) {
-               return {status: 'skipped'}
-            }
-
-            unlink $file.target_abs_path
-            cp $file.source_abs_path $file.target_abs_path
-            chmod $file.chmod $file.target_abs_path
-            chown -R $"($file.owner):($file.group)" $file.target_abs_path
-            {status: 'success'}
-         }
-
-         [_ _] => {
-            {status: 'failed'}
-         }
-      }
-   } catch {
-      {status: 'failed'}
+def install-packages [
+   packages: oneof<table, nothing>
+]: nothing -> nothing {
+   if $packages == null or ($packages | is-empty) {
+      return
    }
+
+   let installed_packages = pacman -Qq | lines
+
+   let missing_packages = $packages | where {|package|
+      ($package.name not-in $installed_packages) and $package.ignore == false
+   }
+
+   if ($missing_packages | is-empty) {
+      {std_packages: 'skipped' aur_packages: 'skipped' local_packages: 'skipped'} | print
+      return
+   }
+
+   let missing_std_package_names = $missing_packages
+   | where from == 'std'
+   | each {|missing_package| $missing_package.name }
+
+   let install_std_packages_status: string = do {
+      if ($missing_std_package_names | is-empty) {
+         return 'skipped'
+      }
+
+      try {
+         pacman -S ...$missing_std_package_names
+         'success'
+      } catch {
+         'failed'
+      }
+   }
+
+   let missing_aur_package_names = $missing_packages
+   | where from == 'aur'
+   | each {|missing_aur_package| $missing_aur_package.name }
+
+   let install_aur_packages_status: string = do {
+      if ($missing_aur_package_names | is-empty) {
+         return 'skipped'
+      }
+
+      try {
+         paru -S --aur ...$missing_aur_package_names
+         'success'
+      } catch {
+         'failed'
+      }
+   }
+
+   let missing_local_package_paths = $missing_packages
+   | where from == 'lcl'
+   | each {|missing_package| $missing_package.path }
+
+   let install_local_packages_status = do {
+      if ($missing_local_package_paths | is-empty) {
+         return 'skipped'
+      }
+
+      try {
+         paru -Bi ...$missing_local_package_paths
+         'success'
+      } catch {
+         'failed'
+      }
+   }
+
+   {
+      std_packages: $install_std_packages_status
+      aur_packages: $install_std_packages_status
+      local_packages: $install_local_packages_status
+   } | print
 }
 
-def link-file [
-   file
-]: nothing -> record<status: string> {
-   let source_abs_path_type = $file.source_abs_path | path type
-   let target_abs_path_type = $file.target_abs_path | path type
+def do-units [
+   units: oneof<table, nothing>
+]: nothing -> nothing {
+   if $units == null or ($units | is-empty) {
+      return
+   }
 
-   try {
-      match [$source_abs_path_type $target_abs_path_type] {
-         [null _] => {
-            {status: 'failed'}
-         }
-
-         [_ null] => {
-
-            let target_parent_dir_abs_path = $file.target_abs_path | path dirname
-
-            if not ($target_parent_dir_abs_path | path exists) {
-               mkdir $target_parent_dir_abs_path
-            }
-
-            ln -s $file.source_abs_path $file.target_abs_path
-            chown -R $"($file.owner):($file.group)" $file.target_abs_path
-            {status: 'success'}
-         }
-
-         [_ dir] => {
-            rm -r $file.target_abs_path
-            ln -s $file.source_abs_path $file.target_abs_path
-            chown -R $"($file.owner):($file.group)" $file.target_abs_path
-            {status: 'success'}
-         }
-
-         [_ file] => {
-            rm $file.target_abs_path
-            ln -s $file.source_abs_path $file.target_abs_path
-            chown -R $"($file.owner):($file.group)" $file.target_abs_path
-            {status: 'success'}
-         }
-
-         [_ symlink] => {
-            if (
-               ($file.target_abs_path | path expand) ==
-               $file.source_abs_path
-            ) {
-               return {status: 'skipped'}
-            }
-
-            unlink $file.target_abs_path
-            ln -s $file.source_abs_path $file.target_abs_path
-            chown -R $"($file.owner):($file.group)" $file.target_abs_path
-            {status: 'success'}
-         }
-
-         [_ _] => {
-            {status: 'failed'}
-         }
-      }
-   } catch {
-      {status: 'failed'}
+   $units | each {|unit|
+      enable-units $unit.user ...$unit.enable | print
    }
 }
 
@@ -500,6 +345,170 @@ def cleanup-units [
    }
 
    $disable_results
+}
+
+def install-file [
+   file: record
+]: nothing -> record<status: string> {
+   match $file.action {
+      copy => {
+         copy-file $file
+      }
+
+      link => {
+         link-file $file
+      }
+
+      _ => {
+         {status: 'failed'}
+      }
+   }
+}
+
+def copy-file [
+   file
+]: nothing -> record<status: string> {
+   let source_abs_path_type = $file.source_abs_path | path type
+   let target_abs_path_type = $file.target_abs_path | path type
+
+   try {
+      match [$source_abs_path_type $target_abs_path_type] {
+         [null _] => {
+            {status: 'failed'}
+         }
+
+         [_ null] => {
+            let target_dir_abs_path = $file.target_abs_path | path dirname
+
+            if not ($target_dir_abs_path | path exists) {
+               mkdir $target_dir_abs_path
+            }
+
+            cp -r $file.source_abs_path $file.target_abs_path
+            chmod $file.chmod $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [dir dir] => {
+            if (
+               diff
+               -rq
+               $file.target_abs_path
+               $file.source_abs_path
+               | complete
+               | get exit_code
+               | $in == 0
+            ) {
+               return {status: 'skipped'}
+            }
+
+            rm -r $file.target_abs_path
+            cp -r $file.source_abs_path $file.target_abs_path
+            chmod $file.chmod $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [file file] => {
+            let target_file = open --raw $file.target_abs_path
+            let source_file = open --raw $file.source_abs_path
+
+            if ($target_file == $source_file) {
+               return {status: 'skipped'}
+            }
+
+            rm $file.target_abs_path
+            cp $file.source_abs_path $file.target_abs_path
+            chmod $file.chmod $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [symlink symlink] => {
+            if (
+               ($file.source_abs_path | path expand) ==
+               ($file.target_abs_path | path expand)
+            ) {
+               return {status: 'skipped'}
+            }
+
+            unlink $file.target_abs_path
+            cp $file.source_abs_path $file.target_abs_path
+            chmod $file.chmod $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ _] => {
+            {status: 'failed'}
+         }
+      }
+   } catch {
+      {status: 'failed'}
+   }
+}
+
+def link-file [
+   file
+]: nothing -> record<status: string> {
+   let source_abs_path_type = $file.source_abs_path | path type
+   let target_abs_path_type = $file.target_abs_path | path type
+
+   try {
+      match [$source_abs_path_type $target_abs_path_type] {
+         [null _] => {
+            {status: 'failed'}
+         }
+
+         [_ null] => {
+
+            let target_parent_dir_abs_path = $file.target_abs_path | path dirname
+
+            if not ($target_parent_dir_abs_path | path exists) {
+               mkdir $target_parent_dir_abs_path
+            }
+
+            ln -s $file.source_abs_path $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ dir] => {
+            rm -r $file.target_abs_path
+            ln -s $file.source_abs_path $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ file] => {
+            rm $file.target_abs_path
+            ln -s $file.source_abs_path $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ symlink] => {
+            if (
+               ($file.target_abs_path | path expand) ==
+               $file.source_abs_path
+            ) {
+               return {status: 'skipped'}
+            }
+
+            unlink $file.target_abs_path
+            ln -s $file.source_abs_path $file.target_abs_path
+            chown -R $"($file.owner):($file.group)" $file.target_abs_path
+            {status: 'success'}
+         }
+
+         [_ _] => {
+            {status: 'failed'}
+         }
+      }
+   } catch {
+      {status: 'failed'}
+   }
 }
 
 def enable-unit [
