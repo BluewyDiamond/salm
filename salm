@@ -164,7 +164,7 @@ def 'main cleanup' [
       }
 
       $config.units | each {|unit|
-         disable-units $unit.user ...$unit.enable | print
+         cleanup-units $unit.user ...$unit.enable | print
       }
    }
 
@@ -423,66 +423,7 @@ def is-package-a-dependency []: string -> bool {
    | $in > 1
 }
 
-def cleanup-unit [
-   unit
-   enabled_unit_names
-]: nothing -> nothing {
-   log info $"checking units to cleanup - user=($unit.user) dir_abs_path=($unit.dir_abs_path)"
-
-   let unit_names_to_ignore = $unit.enable
-   | each --flatten {|unit_name_to_enable|
-      if (is-admin) and ($unit.user == root) {
-         systemctl list-dependencies --plain --no-pager $unit_name_to_enable
-         | lines
-         | str trim
-      } else if (is-admin) {
-         systemctl --user -M $"($unit.user)@" list-dependencies --plain --no-pager $unit_name_to_enable
-         | lines
-         | str trim
-      } else if ($unit.user == $env.LOGNAME) {
-         systemctl --user list-dependencies --plain --no-pager $unit_name_to_enable
-         | lines
-         | str trim
-      } else {
-         log error (
-            "skipped unit cleanup - no method -"
-            + $" unit=($unit_name_to_enable) owned-by=($unit.user)"
-         )
-      }
-   }
-   | uniq
-
-   let unit_names_to_disable = $enabled_unit_names | where {|enabled_unit_name|
-      (
-         ($enabled_unit_name not-in $unit.enable) and
-         ($enabled_unit_name not-in $unit_names_to_ignore)
-      )
-   }
-
-   if ($unit_names_to_disable | is-empty) {
-      log info $"skipping units to disable - there is nothing to do"
-      return
-   }
-
-   $unit_names_to_disable | each {|unit_name_to_disable|
-      log info $"disabling unit - unit=($unit_name_to_disable) owned-by=($unit.user)"
-
-      if (is-admin) and ($unit.user == root) {
-         systemctl disable $unit_name_to_disable
-      } else if (is-admin) {
-         systemctl --user -M $"($unit.user)@" disable $unit_name_to_disable
-      } else if ($unit.user == $env.LOGNAME) {
-         systemctl --user disable $unit_name_to_disable
-      } else {
-         log error (
-            $"skipped unit disable - no method -"
-            + $" unit=($unit_name_to_disable) owned-by=($unit.user)"
-         )
-      }
-   }
-}
-
-def disable-units [
+def cleanup-units [
    user: string
    ...keep_unit_names: string
 ]: nothing -> table {
@@ -785,20 +726,4 @@ def build-config [
    }
 
    $config
-}
-
-export def check-what-error [
-   error
-   texts_to_search: list<string>
-]: nothing -> bool {
-   $error.json
-   | from json
-   | get labels
-   | get text
-   | any {|text|
-      $texts_to_search
-      | any {|text_to_search|
-         $text | str contains $text_to_search
-      }
-   }
 }
