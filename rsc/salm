@@ -1,0 +1,3 @@
+#!/usr/bin/env nu
+
+nu /usr/share/salm/src/main.nu
