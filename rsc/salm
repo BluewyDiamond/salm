@@ -1,3 +1,5 @@
 #!/usr/bin/env nu
 
-nu /usr/share/salm/src/main.nu
+def --wrapped main [...rest] {
+   nu /usr/share/salm/src/main.nu ...$rest
+}
