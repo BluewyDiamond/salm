@@ -30,13 +30,8 @@ def 'main install' [
    --config-dir (-c): path = . # full path to config directory
    ...profiles: string # list of profile names
 ]: nothing -> nothing {
-   if ($profiles | is-empty) {
-      error make {msg: "Missing parameter..."}
-   }
-
    let profiles = $profiles | each {|profile| [$profile] | into cell-path }
-   let config = build-config $config_dir
-   let config = $config | get ($profiles | first) ...($profiles | drop 1)
+   let config = build-config $config_dir | get ($profiles | first) ...($profiles | drop 1)
 
    if $config.file_shapes? != null {
       install-file-shapes $config.file_shapes
