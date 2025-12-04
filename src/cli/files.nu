@@ -81,7 +81,7 @@ def copy-file-shape-unsafe [
             | get exit_code
             | $in == 0
          ) {
-            return (ok -n $file_errs.SKIPPED)
+            return (ok -n $file_oks.SKIPPED)
          }
 
          rm -r $file_shape.target_abs_path
@@ -96,7 +96,7 @@ def copy-file-shape-unsafe [
          let source_file = open --raw $file_shape.source_abs_path
 
          if ($target_file == $source_file) {
-            return (ok -n $file_errs.SKIPPED)
+            return (ok -n $file_oks.SKIPPED)
          }
 
          rm $file_shape.target_abs_path
@@ -111,7 +111,7 @@ def copy-file-shape-unsafe [
             ($file_shape.source_abs_path | path expand) ==
             ($file_shape.target_abs_path | path expand)
          ) {
-            return (ok -n $file_errs.SKIPPED)
+            return (ok -n $file_oks.SKIPPED)
          }
 
          unlink $file_shape.target_abs_path
