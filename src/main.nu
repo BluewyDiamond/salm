@@ -1,7 +1,7 @@
 use ./config.nu [ build-config ]
 use ./cli/files.nu [ install-file-shapes ]
 use ./cli/packages.nu [ install-package-shapes cleanup-package-shapes ]
-use ./cli/units.nu [ do-unit-shapes cleanup-unit-shape ]
+use ./cli/units.nu [ do-unit-shapes cleanup-unit-shapes ]
 
 # Reads *.toml recursively and does stuff.
 def main [] { }
@@ -40,8 +40,10 @@ def 'main install' [
 
    install-file-shapes $config.file_shapes?
    install-package-shapes $config.package_shapes?
-   do-unit-shapes $config.unit_shapes?
-   null
+
+   if $config.unit_shapes != null {
+      do-unit-shapes $config.unit_shapes
+   }
 }
 
 def 'main cleanup' [
@@ -69,9 +71,7 @@ def 'main cleanup' [
          return
       }
 
-      $config.unit_shapes | each {|unit_shape|
-         cleanup-unit-shape $unit_shape.user ...$unit_shape.enable | print
-      }
+      cleanup-unit-shapes $config.unit_shapes
    }
 
    null

@@ -1,20 +1,22 @@
-use ../error.nu [ ok err file_oks file_errors ]
+use ../error.nu [ ok err file_oks file_errs ]
 
 export def install-file-shapes [
-   file_shapes: oneof<table, nothing>
+   file_shapes: table
 ]: nothing -> nothing {
-   if $file_shapes == null or ($file_shapes | is-empty) {
+   if ($file_shapes | is-empty) {
       return
    }
 
-   $file_shapes | each {|file_shape|
-      let r = install-file-shape $file_shape
+   let status = $file_shapes | each {|file_shape|
+      let file_install_shape_result = install-file-shape $file_shape
 
       {
          target: $file_shape.target_abs_path
-         status: ($r | to nuon)
+         status: ($file_install_shape_result | to nuon)
       }
-   } | table -e | print
+   }
+
+   $status | print
 }
 
 def install-file-shape [
@@ -30,7 +32,7 @@ def install-file-shape [
       }
 
       _ => {
-         err
+         err -n $file_errs.PATTERN -v $file_shape.action
       }
    }
 }
@@ -41,7 +43,7 @@ def copy-file-shape [
    try {
       copy-file-shape-unsafe $file_shape
    } catch {|error|
-      err -n $file_errors.ANY -v $error
+      err -n $file_errs.CATCH -v $error
    }
 }
 
@@ -79,7 +81,7 @@ def copy-file-shape-unsafe [
             | get exit_code
             | $in == 0
          ) {
-            return (ok -n SKIPPED)
+            return (ok -n $file_errs.SKIPPED)
          }
 
          rm -r $file_shape.target_abs_path
@@ -94,7 +96,7 @@ def copy-file-shape-unsafe [
          let source_file = open --raw $file_shape.source_abs_path
 
          if ($target_file == $source_file) {
-            return (ok -n SKIPPED)
+            return (ok -n $file_errs.SKIPPED)
          }
 
          rm $file_shape.target_abs_path
@@ -109,7 +111,7 @@ def copy-file-shape-unsafe [
             ($file_shape.source_abs_path | path expand) ==
             ($file_shape.target_abs_path | path expand)
          ) {
-            return (ok -n SKIPPED)
+            return (ok -n $file_errs.SKIPPED)
          }
 
          unlink $file_shape.target_abs_path
@@ -131,7 +133,7 @@ def link-file-shape [
    try {
       link-file-shape-unsafe $file_shape
    } catch {|error|
-      err -n $file_errors.ANY -v $error
+      err -n $file_errs.CATCH -v $error
    }
 }
 
@@ -178,7 +180,7 @@ def link-file-shape-unsafe [
             ($file_shape.target_abs_path | path expand) ==
             $file_shape.source_abs_path
          ) {
-            ok -n $file_oks.SKIPPED
+            return (ok -n $file_oks.SKIPPED)
          }
 
          unlink $file_shape.target_abs_path

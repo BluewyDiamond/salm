@@ -1,70 +1,29 @@
-export def do-unit-shapes [
-   unit_shapes: oneof<table, nothing>
-]: nothing -> nothing {
-   if $unit_shapes == null or ($unit_shapes | is-empty) {
-      return
-   }
+use ../error.nu [ ok err unit_oks unit_errs ]
 
+export def do-unit-shapes [
+   unit_shapes: table
+]: nothing -> nothing {
    $unit_shapes | each {|unit_shape|
-      enable-units $unit_shape.user ...$unit_shape.enable | print
+      enable-units $unit_shape.user ...$unit_shape.enable
    }
 }
 
-export def cleanup-unit-shape [
+export def cleanup-unit-shapes [
+   unit_shapes: table
+]: nothing -> nothing {
+   $unit_shapes | each {|unit_shape|
+      cleanup-unit-shape $unit_shape.user ...$unit_shape.enable
+   }
+}
+
+def cleanup-unit-shape [
    user: string
    ...units_to_keep: string
-]: nothing -> table {
-   def list-reverse-dependencies [
-      --user: string
-      unit: string
-   ]: nothing -> list {
-      let dependencies = if $user == null or $user == 'root' {
-         systemctl list-dependencies --reverse --plain $unit
-      } else {
-         systemctl -M $"($user)@" --user list-dependencies --reverse --plain $unit
-      }
-      | lines
-      | each {|line| $line | str trim }
-      | where {|dependency|
-         (
-            ($dependency | str ends-with '.service') or
-            ($dependency | str ends-with '.timer') or
-            ($dependency | str ends-with '.socket') or
-            ($dependency | str ends-with '.path')
-         )
-      }
-      | skip 1
-
-      $dependencies
-   }
-
-   def list-dependencies [
-      --user: string
-      unit: string
-   ]: nothing -> list {
-      let dependency = if $user == null or $user == 'root' {
-         systemctl list-dependencies --plain $unit
-      } else {
-         systemctl -M $"($user)@" --user list-dependencies --plain $unit
-      }
-      | lines
-      | each {|line| $line | str trim }
-      | where {|dependency|
-         (
-            ($dependency | str ends-with '.service') or
-            ($dependency | str ends-with '.timer') or
-            ($dependency | str ends-with '.socket') or
-            ($dependency | str ends-with '.path')
-         )
-      }
-      | skip 1
-
-      $dependency
-   }
+]: nothing -> nothing {
 
    let enabled_unit_shapes = get-enabled-unit-shapes --user=$user
 
-   let disable_results = $enabled_unit_shapes | each {|enabled_unit_shape|
+   let status_for_user = $enabled_unit_shapes | each {|enabled_unit_shape|
       let unit_dependencies_to_keep = $units_to_keep | each --flatten {|unit_to_keep|
          list-dependencies --user=$user $unit_to_keep
       }
@@ -88,52 +47,101 @@ export def cleanup-unit-shape [
       ) {
          return {
             unit: $enabled_unit_shape.unit_file
-            status: 'skipped'
+
+            status: (
+               ok -n $unit_oks.SKIPPED | to nuon
+            )
          }
       }
 
-      let disabled_successfully = disable-unit --user=$user $enabled_unit_shape.unit_file
-      let status = if $disabled_successfully { 'success' } else { 'failed' }
+      let unit_disable_result = disable-unit --user=$user $enabled_unit_shape.unit_file
 
       {
          unit: $enabled_unit_shape.unit_file
-         status: $status
+         status: ($unit_disable_result | to nuon)
       }
    }
 
-   $disable_results
+   $status_for_user | print
+}
+
+def list-reverse-dependencies [
+   --user: string
+   unit: string
+]: nothing -> list {
+   let reverse_dependencies = if $user == null or $user == 'root' {
+      systemctl list-dependencies --reverse --plain $unit
+   } else {
+      systemctl -M $"($user)@" --user list-dependencies --reverse --plain $unit
+   }
+   | lines
+   | each {|line| $line | str trim }
+   | where {|dependency|
+      (
+         ($dependency | str ends-with '.service') or
+         ($dependency | str ends-with '.timer') or
+         ($dependency | str ends-with '.socket') or
+         ($dependency | str ends-with '.path')
+      )
+   }
+   | skip 1
+
+   $reverse_dependencies
+}
+
+def list-dependencies [
+   --user: string
+   unit: string
+]: nothing -> list {
+   let dependency = if $user == null or $user == 'root' {
+      systemctl list-dependencies --plain $unit
+   } else {
+      systemctl -M $"($user)@" --user list-dependencies --plain $unit
+   }
+   | lines
+   | each {|line| $line | str trim }
+   | where {|dependency|
+      (
+         ($dependency | str ends-with '.service') or
+         ($dependency | str ends-with '.timer') or
+         ($dependency | str ends-with '.socket') or
+         ($dependency | str ends-with '.path')
+      )
+   }
+   | skip 1
+
+   $dependency
 }
 
 def enable-units [
    user: string
    ...units: string
-]: nothing -> table {
+]: nothing -> nothing {
    let enabled_unit_shapes = get-enabled-unit-shapes --user $user
 
-   let unit_enable_results = $units | each {|unit|
+   let status = $units | each {|unit|
       if ($unit in $enabled_unit_shapes.unit_file) {
          return {
             unit: $unit
-            status: 'skipped'
+            status: (ok -n $unit_oks.SKIPPED | to nuon)
          }
       }
 
-      let is_enable_unit_successful = enable-unit --user=$user $unit
-      let status = if $is_enable_unit_successful { 'success' } else { 'failed' }
+      let result = enable-unit --user=$user $unit
 
       {
          unit: $unit
-         status: $status
+         status: ($result | to nuon)
       }
    }
 
-   $unit_enable_results
+   $status | print
 }
 
 def enable-unit [
    --user: string
    unit: string
-]: nothing -> bool {
+]: nothing -> record {
    try {
       if $user == null or $user == 'root' {
          systemctl enable $unit e>| ignore
@@ -141,16 +149,16 @@ def enable-unit [
          systemctl -M $"($user)@" --user enable $unit e>| ignore
       }
 
-      true
-   } catch {
-      false
+      ok
+   } catch {|error|
+      err -n $unit_errs.CATCH -v $error
    }
 }
 
 def disable-unit [
    --user: string
    unit: string
-]: nothing -> bool {
+]: nothing -> record {
    try {
       if $user == null or $user == 'root' {
          systemctl disable $unit e>| ignore
@@ -158,9 +166,9 @@ def disable-unit [
          systemctl -M $"($user)@" --user disable $unit e>| ignore
       }
 
-      true
-   } catch {
-      false
+      ok
+   } catch {|error|
+      err -n $unit_errs.CATCH -v $error
    }
 }
 
