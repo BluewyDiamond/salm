@@ -8,13 +8,13 @@ export def install-file-shapes [
    }
 
    $file_shapes | each {|file_shape|
-      let install_result = install-file-shape $file_shape
+      let r = install-file-shape $file_shape
 
       {
          target: $file_shape.target_abs_path
-         status: $install_result
+         status: ($r | to nuon)
       }
-   } | print
+   } | table -e | print
 }
 
 def install-file-shape [
