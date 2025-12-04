@@ -7,7 +7,7 @@ export def install-file-shapes [
       return
    }
 
-   let status = $file_shapes | each {|file_shape|
+   let status_for_user = $file_shapes | each {|file_shape|
       let file_install_shape_result = install-file-shape $file_shape
 
       {
@@ -16,7 +16,7 @@ export def install-file-shapes [
       }
    }
 
-   $status | print
+   $status_for_user | print
 }
 
 def install-file-shape [

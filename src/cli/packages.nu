@@ -1,122 +1,135 @@
-export def install-package-shapes [
-   package_shapes: oneof<table, nothing>
+use ../error.nu [ ok err pkg_oks pkg_errs ]
+
+export def install-pkg-shapes [
+   pkg_shapes: table
 ]: nothing -> nothing {
-   if $package_shapes == null or ($package_shapes | is-empty) {
+   let installed_pkgs = pacman -Qq | lines
+
+   let missing_pkg_shapes = $pkg_shapes | where {|pkg_shape|
+      ($pkg_shape.name not-in $installed_pkgs) and $pkg_shape.ignore == false
+   }
+
+   if ($missing_pkg_shapes | is-empty) {
+      {
+         std_pkgs: (ok -n $pkg_oks.SKIPPED | to nuon)
+         aur_pkgs: (ok -n $pkg_oks.SKIPPED | to nuon)
+         local_pkgs: (ok -n $pkg_oks.SKIPPED | to nuon)
+      } | print
+
       return
    }
 
-   let installed_packages = pacman -Qq | lines
-
-   let missing_package_shapes = $package_shapes | where {|package_shape|
-      ($package_shape.name not-in $installed_packages) and $package_shape.ignore == false
-   }
-
-   if ($missing_package_shapes | is-empty) {
-      {std_packages: 'skipped' aur_packages: 'skipped' local_packages: 'skipped'} | print
-      return
-   }
-
-   let missing_std_packages = $missing_package_shapes
+   let missing_std_pkgs = $missing_pkg_shapes
    | where from == 'std'
-   | each {|missing_std_package_shape| $missing_std_package_shape.name }
+   | each {|missing_std_pkg_shape| $missing_std_pkg_shape.name }
 
-   let install_std_packages_status: string = do {
-      if ($missing_std_packages | is-empty) {
-         return 'skipped'
+   let std_pkgs_result: record = do {
+      if ($missing_std_pkgs | is-empty) {
+         return (ok -n $pkg_oks.SKIPPED)
       }
 
       try {
-         pacman -S ...$missing_std_packages
-         'success'
-      } catch {
-         'failed'
+         pacman -S ...$missing_std_pkgs
+         ok -n $pkg_oks.SKIPPED
+      } catch {|error|
+         err -n $pkg_errs.CATCH
       }
    }
 
-   let missing_aur_packages = $missing_package_shapes
+   let missing_aur_pkgs = $missing_pkg_shapes
    | where from == 'aur'
-   | each {|missing_aur_package_shape| $missing_aur_package_shape.name }
+   | each {|missing_aur_pkg_shape| $missing_aur_pkg_shape.name }
 
-   let install_aur_packages_status: string = do {
-      if ($missing_aur_packages | is-empty) {
-         return 'skipped'
+   let aur_pkgs_result: record = do {
+      if ($missing_aur_pkgs | is-empty) {
+         return (ok -n $pkg_oks.SKIPPED)
       }
 
       try {
-         paru -S --aur ...$missing_aur_packages
-         'success'
+         paru -S --aur ...$missing_aur_pkgs
+         ok -n $pkg_oks.SKIPPED
       } catch {
-         'failed'
+         err -n $pkg_errs.CATCH
       }
    }
 
-   let missing_local_package_paths = $missing_package_shapes
+   let missing_local_pkg_paths = $missing_pkg_shapes
    | where from == 'lcl'
-   | each {|missing_local_package_shape| $missing_local_package_shape.path }
+   | each {|missing_local_pkg_shape| $missing_local_pkg_shape.path }
 
-   let install_local_packages_status = do {
-      if ($missing_local_package_paths | is-empty) {
-         return 'skipped'
+   let install_local_pkgs_status: record = do {
+      if ($missing_local_pkg_paths | is-empty) {
+         return (ok -n $pkg_oks.SKIPPED)
       }
 
       try {
-         paru -Bi ...$missing_local_package_paths
-         'success'
+         paru -Bi ...$missing_local_pkg_paths
+         ok -n $pkg_oks.SKIPPED
       } catch {
-         'failed'
+         err -n $pkg_errs.CATCH
       }
    }
 
-   {
-      std_packages: $install_std_packages_status
-      aur_packages: $install_std_packages_status
-      local_packages: $install_local_packages_status
-   } | print
+   let status_for_user = {
+      std_pkgs: ($std_pkgs_result | to nuon)
+      aur_pkgs: ($std_pkgs_result | to nuon)
+      local_pkgs: ($install_local_pkgs_status | to nuon)
+   }
+
+   $status_for_user | print
 }
 
-export def cleanup-package-shapes [
-   package_shapes
+export def cleanup-pkg-shapes [
+   pkg_shapes
 ]: nothing -> record {
-   def is-package-a-dependency []: string -> bool {
-      let package = $in
+   let installed_pkgs = pacman -Qq | lines
+   let pkgs = $pkg_shapes | par-each {|pkg_shape| $pkg_shape.name }
 
-      let is_package_a_dependency = pactree -rl $package
-      | complete
-      | get stdout
-      | lines
-      | length
-      | $in > 1
-
-      $is_package_a_dependency
-   }
-
-   let installed_packages = pacman -Qq | lines
-   let packages = $package_shapes | par-each {|package_shape| $package_shape.name }
-
-   let unlisted_packages = $installed_packages | par-each {|installed_package|
-      if ($installed_package | is-package-a-dependency) {
+   let unwanted_pkgs = $installed_pkgs | par-each {|installed_pkg|
+      if ($installed_pkg | is-pkg-a-dependency) {
          return
       }
 
-      if $installed_package in $packages {
+      if $installed_pkg in $pkgs {
          return
       }
 
-      $installed_package
+      $installed_pkg
    }
 
-   if ($unlisted_packages | is-empty) {
+   if ($unwanted_pkgs | is-empty) {
       return {
-         packages: {
-            status: 'skipped'
+         pkgs: {
+            status: (ok -n $pkg_oks.SKIPPED)
          }
       }
    }
 
    try {
-      pacman -Rns ...$unlisted_packages
-      {packages: {status: 'success'}}
-   } catch {
-      {packages: {status: 'failed'}}
+      pacman -Rns ...$unwanted_pkgs
+
+      {
+         pkgs: {
+            status: (ok | to nuon)
+         }
+      }
+   } catch {|error|
+      {
+         pkgs: {
+            status: (err -n $pkg_errs.CATCH -v $error | to nuon)
+         }
+      }
    }
+}
+
+def is-pkg-a-dependency []: string -> bool {
+   let pkg = $in
+
+   let pkg_reverse_dependencies = pactree -rl $pkg
+   | complete
+   | get stdout
+   | lines
+   | length
+
+   $pkg_reverse_dependencies > 1
 }

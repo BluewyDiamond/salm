@@ -10,6 +10,14 @@ export const file_errs = {
    CATCH: "CATCH"
 }
 
+export const pkg_oks = {
+   SKIPPED: "SKIPPED"
+}
+
+export const pkg_errs = {
+   CATCH: "CATCH"
+}
+
 export const unit_oks = {
    SKIPPED: "SKIPPED"
 }

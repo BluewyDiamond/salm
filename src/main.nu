@@ -1,6 +1,6 @@
 use ./config.nu [ build-config ]
 use ./cli/files.nu [ install-file-shapes ]
-use ./cli/packages.nu [ install-package-shapes cleanup-package-shapes ]
+use ./cli/packages.nu [ install-pkg-shapes cleanup-pkg-shapes ]
 use ./cli/units.nu [ do-unit-shapes cleanup-unit-shapes ]
 
 # Reads *.toml recursively and does stuff.
@@ -38,12 +38,19 @@ def 'main install' [
    let config = build-config $config_dir
    let config = $config | get ($profiles | first) ...($profiles | drop 1)
 
-   install-file-shapes $config.file_shapes?
-   install-package-shapes $config.package_shapes?
+   if $config.file_shapes? != null {
+      install-file-shapes $config.file_shapes
+   }
 
-   if $config.unit_shapes != null {
+   if $config.package_shapes? != null {
+      install-pkg-shapes $config.package_shapes
+   }
+
+   if $config.unit_shapes? != null {
       do-unit-shapes $config.unit_shapes
    }
+
+   null
 }
 
 def 'main cleanup' [
@@ -67,7 +74,7 @@ def 'main cleanup' [
    }
 
    do {
-      if $config.unit_shapes == null or ($config.unit_shapes | is-empty) {
+      if $config.unit_shapes? == null or ($config.unit_shapes | is-empty) {
          return
       }
 
