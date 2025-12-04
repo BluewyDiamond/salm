@@ -23,7 +23,7 @@ export def install-pkg-shapes [
    | where from == 'std'
    | each {|missing_std_pkg_shape| $missing_std_pkg_shape.name }
 
-   let std_pkgs_result: record = do {
+   let std_pkgs_install_result: record = do {
       if ($missing_std_pkgs | is-empty) {
          return (ok -n $pkg_oks.SKIPPED)
       }
@@ -32,7 +32,7 @@ export def install-pkg-shapes [
          pacman -S ...$missing_std_pkgs
          ok -n $pkg_oks.SKIPPED
       } catch {|error|
-         err -n $pkg_errs.CATCH
+         err -n $pkg_errs.CATCH -v $error
       }
    }
 
@@ -40,7 +40,7 @@ export def install-pkg-shapes [
    | where from == 'aur'
    | each {|missing_aur_pkg_shape| $missing_aur_pkg_shape.name }
 
-   let aur_pkgs_result: record = do {
+   let aur_pkgs_install_result: record = do {
       if ($missing_aur_pkgs | is-empty) {
          return (ok -n $pkg_oks.SKIPPED)
       }
@@ -48,8 +48,8 @@ export def install-pkg-shapes [
       try {
          paru -S --aur ...$missing_aur_pkgs
          ok -n $pkg_oks.SKIPPED
-      } catch {
-         err -n $pkg_errs.CATCH
+      } catch {|error|
+         err -n $pkg_errs.CATCH -v $error
       }
    }
 
@@ -57,7 +57,7 @@ export def install-pkg-shapes [
    | where from == 'lcl'
    | each {|missing_local_pkg_shape| $missing_local_pkg_shape.path }
 
-   let install_local_pkgs_status: record = do {
+   let local_pkgs_install_result: record = do {
       if ($missing_local_pkg_paths | is-empty) {
          return (ok -n $pkg_oks.SKIPPED)
       }
@@ -65,15 +65,15 @@ export def install-pkg-shapes [
       try {
          paru -Bi ...$missing_local_pkg_paths
          ok -n $pkg_oks.SKIPPED
-      } catch {
-         err -n $pkg_errs.CATCH
+      } catch {|error|
+         err -n $pkg_errs.CATCH -v $error
       }
    }
 
    let status_for_user = {
-      std_pkgs: ($std_pkgs_result | to nuon)
-      aur_pkgs: ($std_pkgs_result | to nuon)
-      local_pkgs: ($install_local_pkgs_status | to nuon)
+      std_pkgs: ($std_pkgs_install_result | to nuon)
+      aur_pkgs: ($aur_pkgs_install_result | to nuon)
+      local_pkgs: ($local_pkgs_install_result | to nuon)
    }
 
    $status_for_user | print
