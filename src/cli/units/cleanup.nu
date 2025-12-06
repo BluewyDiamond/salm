@@ -5,7 +5,6 @@ export def cleanup-unit-shape [
    user: string
    ...units_to_keep: string
 ]: nothing -> nothing {
-
    let enabled_unit_shapes = get-enabled-unit-shapes --user=$user
 
    let status_for_user = $enabled_unit_shapes | each {|enabled_unit_shape|
