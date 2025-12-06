@@ -116,7 +116,7 @@ export def cleanup-pkg-shapes [
    } catch {|error|
       {
          pkgs: {
-            status: (err -n $pkg_errs.CATCH -v $error | to nuon)
+            status: (err -n $pkg_errs.CATCH -v $error.msg | to nuon)
          }
       }
    }
