@@ -58,7 +58,7 @@ def 'main cleanup' [
          return
       }
 
-      cleanup-package-shapes $config.package_shapes | table -e | print
+      cleanup-pkg-shapes $config.package_shapes | table -e | print
    }
 
    do {
