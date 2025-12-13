@@ -1,6 +1,6 @@
 export def build-config [
    config_dir_abs: path
-]: nothing -> any {
+]: nothing -> oneof<table, nothing> {
    let target = $config_dir_abs | path join '*' '**' '*.toml' | into glob
 
    let config = ls $target
