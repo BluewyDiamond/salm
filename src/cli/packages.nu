@@ -9,28 +9,16 @@ export def install-pkg-shapes [
       ($pkg_shape.name not-in $installed_pkgs) and $pkg_shape.ignore == false
    }
 
-   if ($missing_pkg_shapes | is-empty) {
-      {
-         std_pkgs: (ok -n $pkg_oks.SKIPPED | to nuon)
-         aur_pkgs: (ok -n $pkg_oks.SKIPPED | to nuon)
-         local_pkgs: (ok -n $pkg_oks.SKIPPED | to nuon)
-      } | print
-
-      return
-   }
-
    let missing_std_pkgs = $missing_pkg_shapes
    | where from == 'std'
    | each {|missing_std_pkg_shape| $missing_std_pkg_shape.name }
 
-   let std_pkgs_install_result: record = do {
-      if ($missing_std_pkgs | is-empty) {
-         return (ok -n $pkg_oks.SKIPPED)
-      }
-
+   let std_pkgs_install_result: record = if ($missing_std_pkgs | is-empty) {
+      ok -n $pkg_oks.SKIPPED
+   } else {
       try {
          pacman -S ...$missing_std_pkgs
-         ok -n $pkg_oks.SKIPPED
+         ok
       } catch {|error|
          err -n $pkg_errs.CATCH -v $error
       }
@@ -40,13 +28,11 @@ export def install-pkg-shapes [
    | where from == 'aur'
    | each {|missing_aur_pkg_shape| $missing_aur_pkg_shape.name }
 
-   let aur_pkgs_install_result: record = do {
-      if ($missing_aur_pkgs | is-empty) {
-         return (ok -n $pkg_oks.SKIPPED)
-      }
-
+   let aur_pkgs_install_result: record = if ($missing_aur_pkgs | is-empty) {
+      ok -n $pkg_oks.SKIPPED
+   } else {
       try {
-         paru -S --aur ...$missing_aur_pkgs
+         run0 -u nobody -- yay -S --repo ...$missing_aur_pkgs
          ok -n $pkg_oks.SKIPPED
       } catch {|error|
          err -n $pkg_errs.CATCH -v $error
@@ -57,13 +43,11 @@ export def install-pkg-shapes [
    | where from == 'lcl'
    | each {|missing_local_pkg_shape| $missing_local_pkg_shape.path }
 
-   let local_pkgs_install_result: record = do {
-      if ($missing_local_pkg_paths | is-empty) {
-         return (ok -n $pkg_oks.SKIPPED)
-      }
-
+   let local_pkgs_install_result: record = if ($missing_local_pkg_paths | is-empty) {
+      ok -n $pkg_oks.SKIPPED
+   } else {
       try {
-         paru -Bi ...$missing_local_pkg_paths
+         yay -Bi ...$missing_local_pkg_paths
          ok -n $pkg_oks.SKIPPED
       } catch {|error|
          err -n $pkg_errs.CATCH -v $error
