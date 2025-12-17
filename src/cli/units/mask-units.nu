@@ -1,3 +1,3 @@
-export def mask-units [
+export def main [
 ]: nothing -> nothing {
 }

@@ -1,7 +1,7 @@
 use ../../error.nu [ ok err unit_oks unit_errs ]
 use ./common/enabled.nu get-enabled-unit-shapes
 
-export def cleanup-unit-shape [
+export def main [
    user: string
    ...units_to_keep: string
 ]: nothing -> nothing {
