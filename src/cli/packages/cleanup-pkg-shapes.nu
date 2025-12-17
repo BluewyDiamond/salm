@@ -1,8 +1,6 @@
 use ../../error.nu [ ok err pkg_oks pkg_errs ]
 
-
-
-export def cleanup-pkg-shapes [
+export def main [
    pkg_shapes
 ]: nothing -> record {
    let installed_pkgs = pacman -Qq | lines
@@ -45,4 +43,14 @@ export def cleanup-pkg-shapes [
    }
 }
 
+def is-pkg-a-dependency []: string -> bool {
+   let pkg = $in
 
+   let pkg_reverse_dependencies = pactree -rl $pkg
+   | complete
+   | get stdout
+   | lines
+   | length
+
+   $pkg_reverse_dependencies > 1
+}
