@@ -1,6 +1,6 @@
 export def build-config [
    config_dir_abs: path
-]: nothing -> oneof<table, nothing> {
+]: nothing -> oneof<record, nothing> {
    let target = $config_dir_abs | path join '*' '**' '*.toml' | into glob
 
    ls $target | get name | reduce -f {} {|raw_config_file_rel_path config|
@@ -33,6 +33,8 @@ export def build-config [
                upsert-config-of-unit $config $raw_unit_spec $raw_profile
             }
          }
+      } else {
+         $config
       }
 
       $config
@@ -106,23 +108,36 @@ def upsert-config-of-unit [
    | where {|unit_spec|
       $unit_spec.user == $raw_unit_spec.user
    } | first
+   | default {
+      user: $raw_unit_spec.user
+   }
 
    let unit_spec = if $raw_unit_spec.mask? != null {
       let units_to_mask = $unit_spec.mask? | default [] | append $raw_unit_spec.mask
       $unit_spec | upsert mask $units_to_mask
+   } else {
+      $unit_spec
    }
 
    let unit_spec = if $raw_unit_spec.enable? != null {
       let units_to_enable = $unit_spec.enable? | default [] | append $raw_unit_spec.enable
       $unit_spec | upsert enable $units_to_enable
+   } else {
+      $unit_spec
    }
 
-   let unit_specs = $config | get -o $at | default [] | each {|inner_unit_spec|
-      if $inner_unit_spec.user != $unit_spec.user {
-         return $inner_unit_spec
-      }
+   let unit_specs = $config | get -o $at | default []
 
-      $unit_spec
+   let unit_specs = if ($unit_specs | is-not-empty) {
+      $unit_specs | each {|inner_unit_spec|
+         if $inner_unit_spec.user != $unit_spec.user {
+            return $inner_unit_spec
+         }
+
+         $unit_spec
+      }
+   } else {
+      [$unit_spec]
    }
 
    $config | upsert $at $unit_specs
