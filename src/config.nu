@@ -3,118 +3,127 @@ export def build-config [
 ]: nothing -> oneof<table, nothing> {
    let target = $config_dir_abs | path join '*' '**' '*.toml' | into glob
 
-   let config = ls $target
-   | get name
-   | reduce -f {} {|raw_config_file_rel_path config|
+   ls $target | get name | reduce -f {} {|raw_config_file_rel_path config|
       let raw_config_file_abs_path = $raw_config_file_rel_path | path expand
       let raw_config = open $raw_config_file_abs_path
 
-      mut config = $config
-
-      if $raw_config.files? != null {
-         $config = $raw_config.files | reduce -f $config {|raw_file config|
-            $raw_file.profiles | reduce -f $config {|raw_profile config|
-               let file_shapes = $config
-               | get -o $raw_profile
-               | get -o file_shapes
-               | default []
-
-               let new_file_shape = {
-                  source_abs_path: (
-                     $raw_config_file_abs_path
-                     | path dirname
-                     | path join $raw_file.source
-                     | path expand
-                  )
-
-                  target_abs_path: $raw_file.target
-                  action: $raw_file.action
-                  chmod: $raw_file.chmod
-                  owner: $raw_file.owner
-                  group: $raw_file.group
-               }
-
-               let file_shapes = $file_shapes | append $new_file_shape
-               let at = ([$raw_profile file_shapes] | into cell-path)
-               $config | upsert $at $file_shapes
+      let config = if $raw_config.files? != null {
+         $raw_config.files | reduce -f $config {|raw_file_spec config|
+            $raw_file_spec.profiles | reduce -f $config {|raw_profile config|
+               upsert-config-of-file $config $raw_config_file_abs_path $raw_file_spec $raw_profile
             }
          }
+      } else {
+         $config
       }
 
-      if $raw_config.packages? != null {
-         $config = $raw_config.packages | reduce -f $config {|raw_package config|
-            $raw_package.profiles | reduce -f $config {|raw_profile config|
-               let package_shapes = $config
-               | get -o $raw_profile
-               | get -o package_shapes
-               | default []
-
-               let new_package_shapes = $raw_package.install | each {|raw_package|
-                  {
-                     from: $raw_package.from
-                     name: $raw_package.name
-                     ignore: ($raw_package.ignore? | default false)
-
-                     path: (
-                        if $raw_package.path? != null {
-                           $raw_config_file_abs_path
-                           | path dirname
-                           | path join $raw_package.path
-                           | path expand
-                        }
-                     )
-                  }
-               }
-
-               let package_shapes = $package_shapes | append $new_package_shapes
-               let at = ([$raw_profile package_shapes] | into cell-path)
-               $config | upsert $at $package_shapes
+      let config = if $raw_config.packages? != null {
+         $raw_config.packages | reduce -f $config {|raw_package_spec config|
+            $raw_package_spec.profiles | reduce -f $config {|raw_profile config|
+               upsert-config-of-package $config $raw_config_file_abs_path $raw_package_spec $raw_profile
             }
          }
+      } else {
+         $config
       }
 
-      if $raw_config.units? != null {
-         $config = $raw_config.units | reduce -f $config {|raw_unit config|
-            $raw_unit.profiles | reduce -f $config {|raw_profile config|
-               mut unit_shapes = $config
-               | get -o $raw_profile
-               | get -o unit_shapes
-               | default []
-
-               let new_unit_shape = {
-                  user: $raw_unit.user
-                  mask: $raw_unit.mask?
-                  enable: $raw_unit.enable?
-               }
-
-               let user_matching_unit_shape = $unit_shapes | any {|unit_shape|
-                  $unit_shape.user == $new_unit_shape.user
-               }
-
-               if $user_matching_unit_shape {
-                  $unit_shapes = $unit_shapes | each {|unit_shape|
-                     if $unit_shape.user != $new_unit_shape.user {
-                        return $unit_shape
-                     }
-
-                     {
-                        user: $unit_shape.user
-                        mask: ($raw_unit.mask? | append $new_unit_shape.mask)
-                        enable: ($raw_unit.enable | append $new_unit_shape.enable)
-                     }
-                  }
-               } else {
-                  $unit_shapes = $unit_shapes | append $new_unit_shape
-               }
-
-               let at = ([$raw_profile unit_shapes] | into cell-path)
-               $config | upsert $at $unit_shapes
+      let config = if $raw_config.units? != null {
+         $raw_config.units | reduce -f $config {|raw_unit_spec config|
+            $raw_unit_spec.profiles | reduce -f $config {|raw_profile config|
+               upsert-config-of-unit $config $raw_unit_spec $raw_profile
             }
          }
       }
 
       $config
    }
+}
 
-   $config
+def upsert-config-of-file [
+   config: record
+   raw_config_file_abs_path: path
+   raw_file_spec: record
+   raw_profile: string
+]: nothing -> record {
+   let source_abs_path = (
+      $raw_config_file_abs_path
+      | path dirname
+      | path join $raw_file_spec.source
+      | path expand
+   )
+
+   let file_spec = {
+      source_abs_path: $source_abs_path
+      target_abs_path: $raw_file_spec.target
+      action: $raw_file_spec.action
+      chmod: $raw_file_spec.chmod
+      owner: $raw_file_spec.owner
+      group: $raw_file_spec.group
+   }
+
+   let at = ([$raw_profile file_specs] | into cell-path)
+   let file_specs = $config | get -o $at | default [] | append $file_spec
+   $config | upsert $at $file_specs
+}
+
+def upsert-config-of-package [
+   config: record
+   raw_config_file_abs_path: path
+   raw_package_spec: record
+   raw_profile: string
+]: nothing -> record {
+   let package_specs = $raw_package_spec.install | each {|raw_package|
+      let path = if $raw_package.path? != null {
+         $raw_config_file_abs_path
+         | path dirname
+         | path join $raw_package.path
+         | path expand
+      }
+
+      {
+         from: $raw_package.from
+         name: $raw_package.name
+         ignore: ($raw_package.ignore? | default false)
+         path: $path
+      }
+   }
+
+   let at = ([$raw_profile package_shapes] | into cell-path)
+   let package_specs = $config | get -o $at | default [] | append $package_specs
+   $config | upsert $at $package_specs
+}
+
+def upsert-config-of-unit [
+   config: record
+   raw_unit_spec: record
+   raw_profile: string
+]: nothing -> record {
+   let at = ([$raw_profile unit_specs] | into cell-path)
+
+   let unit_spec = $config
+   | get -o $at
+   | default []
+   | where {|unit_spec|
+      $unit_spec.user == $raw_unit_spec.user
+   } | first
+
+   let unit_spec = if $raw_unit_spec.mask? != null {
+      let units_to_mask = $unit_spec.mask? | default [] | append $raw_unit_spec.mask
+      $unit_spec | upsert mask $units_to_mask
+   }
+
+   let unit_spec = if $raw_unit_spec.enable? != null {
+      let units_to_enable = $unit_spec.enable? | default [] | append $raw_unit_spec.enable
+      $unit_spec | upsert enable $units_to_enable
+   }
+
+   let unit_specs = $config | get -o $at | default [] | each {|inner_unit_spec|
+      if $inner_unit_spec.user != $unit_spec.user {
+         return $inner_unit_spec
+      }
+
+      $unit_spec
+   }
+
+   $config | upsert $at $unit_specs
 }
