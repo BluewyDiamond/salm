@@ -2,6 +2,14 @@ use ../../error.nu [ ok err unit_oks unit_errs ]
 use ./common/get-enabled-unit-shapes.nu
 
 export def main [
+   unit_shapes: table
+]: nothing -> nothing {
+   $unit_shapes | each {|unit_shape|
+      cleanup-unit-shape $unit_shape.user ...$unit_shape.enable
+   }
+}
+
+def cleanup-unit-shape [
    user: string
    ...units_to_keep: string
 ]: nothing -> nothing {
