@@ -2,7 +2,7 @@ use ./config.nu [ build-config ]
 use ./cli/files.nu [ install-file-shapes ]
 use ./cli/packages/install-pkg-shapes.nu
 use ./cli/packages/cleanup-pkg-shapes.nu
-use ./cli/units/do-units-shapes.nu
+use ./cli/units/do-unit-shapes.nu
 use ./cli/units/cleanup-unit-shape.nu
 
 # Reads *.toml recursively and does stuff.
