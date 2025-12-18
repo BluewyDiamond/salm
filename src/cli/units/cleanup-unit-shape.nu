@@ -1,5 +1,5 @@
 use ../../error.nu [ ok err unit_oks unit_errs ]
-use ./common/enabled.nu get-enabled-unit-shapes
+use ./common/get-enabled-unit-shapes.nu
 
 export def main [
    user: string

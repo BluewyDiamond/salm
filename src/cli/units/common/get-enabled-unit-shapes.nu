@@ -1,4 +1,4 @@
-export def get-enabled-unit-shapes [
+export def main [
    --user: string
 ]: nothing -> table {
    let unit_shape_ones = list-unit-files --user=$user
