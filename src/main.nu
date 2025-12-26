@@ -1,5 +1,5 @@
 use ./config.nu [ build-config ]
-use ./cli/files.nu [ install-file-shapes ]
+use ./cli/files.nu [ install-file-specs ]
 use ./cli/packages/install-pkg-shapes.nu
 use ./cli/packages/cleanup-pkg-shapes.nu
 use ./cli/units/do-unit-shapes.nu
@@ -32,8 +32,8 @@ def 'main install' [
    let config = build-config $config_dir
    let config = $config | get ($profiles | first) ...($profiles | drop 1)
 
-   if $config.file_shapes? != null {
-      install-file-shapes $config.file_shapes
+   if $config.file_specs? != null {
+      install-file-specs $config.file_specs
    }
 
    if $config.package_shapes? != null {

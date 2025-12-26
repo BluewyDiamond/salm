@@ -1,47 +1,47 @@
 use ../error.nu [ ok err file_oks file_errs ]
 
-export def install-file-shapes [
-   file_shapes: table
+export def install-file-specs [
+   file_specs: list<record>
 ]: nothing -> nothing {
-   if ($file_shapes | is-empty) {
+   if ($file_specs | is-empty) {
       return
    }
 
-   let status_for_user = $file_shapes | each {|file_shape|
-      let file_install_shape_result = install-file-shape $file_shape
+   let formatted_results = $file_specs | each {|file_spec|
+      let result = install-file-shape $file_spec
 
       {
-         target: $file_shape.target_abs_path
-         status: ($file_install_shape_result | to nuon)
+         target: $file_spec.target_abs_path
+         status: ($result | to nuon)
       }
    }
 
-   $status_for_user | print
+   $formatted_results | print
 }
 
 def install-file-shape [
-   file_shape: record
+   file_spec: record
 ]: nothing -> record {
-   match $file_shape.action {
+   match $file_spec.action {
       copy => {
-         copy-file-shape $file_shape
+         copy-file-shape $file_spec
       }
 
       link => {
-         link-file-shape $file_shape
+         link-file-shape $file_spec
       }
 
       _ => {
-         err -n $file_errs.PATTERN -v $file_shape.action
+         err -n $file_errs.PATTERN -v $file_spec.action
       }
    }
 }
 
 def copy-file-shape [
-   file_shape: record
+   file_spec: record
 ]: nothing -> record {
    try {
-      copy-file-shape-unsafe $file_shape
+      copy-file-shape-unsafe $file_spec
    } catch {|error|
       err -n $file_errs.CATCH -v $error
    }
