@@ -1,9 +1,9 @@
 use ./config.nu [ build-config ]
-use ./cli/files.nu [ install-file-specs ]
-use ./cli/packages/install-pkg-shapes.nu
-use ./cli/packages/cleanup-pkg-shapes.nu
-use ./cli/units/do-unit-shapes.nu
-use ./cli/units/cleanup-unit-shapes.nu
+use ./cli/file/install-file-specs.nu
+use ./cli/package/install-pkg-shapes.nu
+use ./cli/package/cleanup-pkg-shapes.nu
+use ./cli/unit/do-unit-shapes.nu
+use ./cli/unit/cleanup-unit-shapes.nu
 
 # Reads *.toml recursively and does stuff.
 def main [] { }
