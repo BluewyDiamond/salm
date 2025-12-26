@@ -1,4 +1,4 @@
-use ../../../../error.nu [ file_errs file_oks ]
+use ../../../../error.nu [ file_errs file_oks err ok ]
 
 export def main [
    file_spec: record

@@ -1,4 +1,4 @@
-use ../../../error.nu [ file_errs ]
+use ../../../error.nu [ file_errs err ]
 use ./install-file-spec/copy-file-spec.nu
 use ./install-file-spec/link-file-spec.nu
 
