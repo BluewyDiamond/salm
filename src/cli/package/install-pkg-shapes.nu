@@ -1,4 +1,5 @@
 use ../../error.nu [ ok err pkg_oks pkg_errs ]
+use std log
 
 export def main [
    pkg_shapes: table
@@ -47,6 +48,7 @@ export def main [
       ok -n $pkg_oks.SKIPPED
    } else {
       try {
+         log info $"Attempting to install ($missing_local_pkg_paths | str join ', ')"
          yay -Bi ...$missing_local_pkg_paths
          ok -n $pkg_oks.SKIPPED
       } catch {|error|
