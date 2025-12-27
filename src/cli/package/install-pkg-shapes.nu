@@ -33,6 +33,7 @@ export def main [
       ok -n $pkg_oks.SKIPPED
    } else {
       try {
+         log info $"Attempting to install ($missing_aur_pkgs | str join ', ')"
          run0 -u nobody -- yay -S --repo ...$missing_aur_pkgs
          ok -n $pkg_oks.SKIPPED
       } catch {|error|
